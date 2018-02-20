@@ -31,6 +31,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 package org.lockss.laaws.mdx;
 
+import static org.lockss.laaws.mdx.MetadataExtractorManager.*;
 import static org.lockss.laaws.mdx.MetadataManagerStatusAccessor.*;
 import static org.lockss.metadata.SqlConstants.*;
 import java.io.*;
@@ -46,8 +47,9 @@ import org.lockss.extractor.ArticleMetadataExtractor;
 import org.lockss.extractor.MetadataField;
 import org.lockss.extractor.MetadataTarget;
 import org.lockss.laaws.mdx.MetadataExtractorManager.PrioritizedAuId;
+import org.lockss.laaws.mdx.job.JobDbManagerMdx;
+import org.lockss.laaws.mdx.job.JobManagerMdx;
 import org.lockss.metadata.MetadataDbManager;
-import org.lockss.metadata.MetadataManager;
 import org.lockss.plugin.*;
 import org.lockss.plugin.simulated.*;
 import org.lockss.util.*;
@@ -77,8 +79,7 @@ public class TestMetadataExtractorManager extends LockssTestCase {
     String tempDirPath = setUpDiskSpace();
     useOldRepo();
 
-    ConfigurationUtil.addFromArgs(MetadataExtractorManager.PARAM_INDEXING_ENABLED,
-	"true");
+    ConfigurationUtil.addFromArgs(PARAM_INDEXING_ENABLED, "true");
 
     theDaemon = getMockLockssDaemon();
     theDaemon.getAlertManager();
@@ -107,6 +108,9 @@ public class TestMetadataExtractorManager extends LockssTestCase {
     ausReindexed.clear();
 
     dbManager = getTestDbManager(tempDirPath);
+
+    theDaemon.setManagerByType(JobManagerMdx.class, new JobManagerMdx());
+    theDaemon.setManagerByType(JobDbManagerMdx.class, new JobDbManagerMdx());
 
     mdxManager = new MetadataExtractorManager() {
       /**
@@ -147,14 +151,9 @@ public class TestMetadataExtractorManager extends LockssTestCase {
       }
     };
 
-    // TODO: Enable/fix the following code line to compile, as MockLockssDaemon
-    // only knows about managers already defined in the lockss-core project, not
-    // in this project.
-    // theDaemon.setMetadataExtractorManager(mdxManager);
+    theDaemon.setManagerByType(MetadataExtractorManager.class, mdxManager);
     mdxManager.initService(theDaemon);
-    // TODO: Enable/fix the following code line to avoid throwing
-    // org.lockss.app.LockssAppException: No ManagerDesc for: org.lockss.laaws.mdx.job.JobManagerMdx
-    // mdxManager.startService();
+    mdxManager.startService();
 
     mdxManagerSql = mdxManager.getMetadataExtractorManagerSql();
 
@@ -164,9 +163,8 @@ public class TestMetadataExtractorManager extends LockssTestCase {
     assertEquals(expectedAuCount, pluginManager.getAllAus().size());
 
     long maxWaitTime = expectedAuCount * 10000; // 10 sec. per au
-    // TODO: Enable the following two code lines once extraction works.
-    // int ausCount = waitForReindexing(expectedAuCount, maxWaitTime);
-    // assertEquals(expectedAuCount, ausCount);
+    int ausCount = waitForReindexing(expectedAuCount, maxWaitTime);
+    assertEquals(expectedAuCount, ausCount);
   }
 
   Configuration simAuConfig(String rootPath) {
@@ -213,23 +211,22 @@ public class TestMetadataExtractorManager extends LockssTestCase {
   }
 
   public void testAll() throws Exception {
-// TODO: Enable all the tests once the setup works.
-//    runCreateMetadataTest();
-//    runTestPendingAu();
-//    runTestPrioritizedPendingAu();
-//    runTestPendingAusBatch();
-//    runModifyMetadataTest();
-//    runDeleteAuMetadataTest();
-//    runTestPriorityPatterns();
-//    runTestDisabledIndexingAu();
-//    runTestFailedIndexingAu();
-//    runTestFindPublication();
-//    runTestGetIndexTypeDisplayString();
-//    runRemoveChildMetadataItemTest();
-//    runMetadataMonitorTest();
-//    runPublicationIntervalTest();
-//    runTestMandatoryMetadataFields();
-//    runMetadataControlTest();
+    runCreateMetadataTest();
+    runTestPendingAu();
+    runTestPrioritizedPendingAu();
+    runTestPendingAusBatch();
+    runModifyMetadataTest();
+    runDeleteAuMetadataTest();
+    runTestPriorityPatterns();
+    runTestDisabledIndexingAu();
+    runTestFailedIndexingAu();
+    runTestFindPublication();
+    runTestGetIndexTypeDisplayString();
+    runRemoveChildMetadataItemTest();
+    runMetadataMonitorTest();
+    runPublicationIntervalTest();
+    runTestMandatoryMetadataFields();
+    runMetadataControlTest();
   }
 
   private void runCreateMetadataTest() throws Exception {
@@ -281,14 +278,14 @@ public class TestMetadataExtractorManager extends LockssTestCase {
       results.add(resultSet.getString(PLUGIN_ID_COLUMN));
     }
     assertEquals(4, results.size());
-    results.
-    	remove("org|lockss|metadata|TestMetadataManager$MySimulatedPlugin0");
-    results.
-    	remove("org|lockss|metadata|TestMetadataManager$MySimulatedPlugin1");
-    results.
-    	remove("org|lockss|metadata|TestMetadataManager$MySimulatedPlugin2");
-    results.
-    	remove("org|lockss|metadata|TestMetadataManager$MySimulatedPlugin3");
+    results.remove(
+	"org|lockss|laaws|mdx|TestMetadataExtractorManager$MySimulatedPlugin0");
+    results.remove(
+	"org|lockss|laaws|mdx|TestMetadataExtractorManager$MySimulatedPlugin1");
+    results.remove(
+	"org|lockss|laaws|mdx|TestMetadataExtractorManager$MySimulatedPlugin2");
+    results.remove(
+	"org|lockss|laaws|mdx|TestMetadataExtractorManager$MySimulatedPlugin3");
     assertEquals(0, results.size());
     
     // check DOIs
@@ -516,9 +513,8 @@ public class TestMetadataExtractorManager extends LockssTestCase {
 
   private void runTestPendingAusBatch() throws Exception {
     // Set to 2 the batch size for adding pending AUs.
-    ConfigurationUtil
-	.addFromArgs(MetadataExtractorManager.PARAM_MAX_PENDING_TO_REINDEX_AU_BATCH_SIZE,
-		     "2");
+    ConfigurationUtil.addFromArgs(PARAM_MAX_PENDING_TO_REINDEX_AU_BATCH_SIZE,
+	"2");
 
     // We are only testing here the addition of AUs to the table of pending AUs,
     // so disable re-indexing.
@@ -675,7 +671,7 @@ public class TestMetadataExtractorManager extends LockssTestCase {
         + AU_TABLE + " au,"
         + PLUGIN_TABLE + " pl"
         + " where pl." + PLUGIN_ID_COLUMN 
-        + " = 'org|lockss|metadata|TestMetadataManager$MySimulatedPlugin0'" 
+        + " = 'org|lockss|laaws|mdx|TestMetadataExtractorManager$MySimulatedPlugin0'" 
         + " and pl." + PLUGIN_SEQ_COLUMN 
         + " = au." + PLUGIN_SEQ_COLUMN
         + " and au." + AU_SEQ_COLUMN 
@@ -736,7 +732,7 @@ public class TestMetadataExtractorManager extends LockssTestCase {
         + AU_TABLE + " au,"
         + PLUGIN_TABLE + " pl"
         + " where pl." + PLUGIN_ID_COLUMN 
-        + " = 'org|lockss|metadata|TestMetadataManager$MySimulatedPlugin0'"
+        + " = 'org|lockss|laaws|mdx|TestMetadataExtractorManager$MySimulatedPlugin0'"
         + " and pl." + PLUGIN_SEQ_COLUMN 
         + " = au." + PLUGIN_SEQ_COLUMN
         + " and au." + AU_SEQ_COLUMN 
@@ -798,7 +794,7 @@ public class TestMetadataExtractorManager extends LockssTestCase {
   }
 
   private void runTestPriorityPatterns() {
-    ConfigurationUtil.addFromArgs(MetadataExtractorManager.PARAM_INDEX_PRIORITY_AUID_MAP,
+    ConfigurationUtil.addFromArgs(PARAM_INDEX_PRIORITY_AUID_MAP,
 				  "foo(4|5),-10000;bar,5;baz,-1");
     MockArchivalUnit mau1 = new MockArchivalUnit(new MockPlugin(theDaemon));
     mau1.setAuId("other");
@@ -1577,8 +1573,7 @@ public class TestMetadataExtractorManager extends LockssTestCase {
   }
 
   private void runTestMandatoryMetadataFields() throws Exception {
-    ConfigurationUtil.addFromArgs(MetadataExtractorManager.PARAM_MANDATORY_FIELDS,
-	"abc;xyz");
+    ConfigurationUtil.addFromArgs(PARAM_MANDATORY_FIELDS, "abc;xyz");
 
     List<String> mandatoryFields = mdxManager.getMandatoryMetadataFields();
 
