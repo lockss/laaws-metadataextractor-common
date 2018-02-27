@@ -1,31 +1,35 @@
 /*
 
- Copyright (c) 2013-2018 Board of Trustees of Leland Stanford Jr. University,
- all rights reserved.
+Copyright (c) 2013-2018 Board of Trustees of Leland Stanford Jr. University,
+all rights reserved.
 
- Permission is hereby granted, free of charge, to any person obtaining a copy
- of this software and associated documentation files (the "Software"), to deal
- in the Software without restriction, including without limitation the rights
- to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- copies of the Software, and to permit persons to whom the Software is
- furnished to do so, subject to the following conditions:
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
 
- The above copyright notice and this permission notice shall be included in
- all copies or substantial portions of the Software.
+1. Redistributions of source code must retain the above copyright notice, this
+list of conditions and the following disclaimer.
 
- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- STANFORD UNIVERSITY BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
- IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+2. Redistributions in binary form must reproduce the above copyright notice,
+this list of conditions and the following disclaimer in the documentation and/or
+other materials provided with the distribution.
 
- Except as contained in this notice, the name of Stanford University shall not
- be used in advertising or otherwise to promote the sale, use or other dealings
- in this Software without prior written authorization from Stanford University.
+3. Neither the name of the copyright holder nor the names of its contributors
+may be used to endorse or promote products derived from this software without
+specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
  */
-package org.lockss.laaws.mdx;
+package org.lockss.metadata.extractor;
 
 import java.io.*;
 import java.lang.management.*;
@@ -39,9 +43,9 @@ import org.lockss.db.DbException;
 import org.lockss.extractor.*;
 import org.lockss.extractor.ArticleMetadataExtractor.Emitter;
 import org.lockss.extractor.MetadataException.ValidationException;
-import org.lockss.laaws.mdx.ArticleMetadataBuffer.ArticleMetadataInfo;
-import org.lockss.laaws.mdx.MetadataExtractorManager.ReindexingStatus;
 import org.lockss.metadata.MetadataDbManager;
+import org.lockss.metadata.extractor.ArticleMetadataBuffer.ArticleMetadataInfo;
+import org.lockss.metadata.extractor.MetadataExtractorManager.ReindexingStatus;
 import org.lockss.plugin.*;
 import org.lockss.scheduler.*;
 import org.lockss.util.*;
@@ -184,7 +188,7 @@ public class ReindexingTask extends StepTask {
     callback = new ReindexingEventHandler();
   }
 
-  public void setWDog(LockssWatchdog watchDog) {
+  void setWDog(LockssWatchdog watchDog) {
     this.watchDog = watchDog;
   }
 
@@ -859,7 +863,7 @@ public class ReindexingTask extends StepTask {
             }
 
             break;
-          } catch (MetadataException me) {
+          } catch (MetadataExtractorException me) {
             e = me;
             log.warning("Error updating metadata at FINISH for " + status
                 + " -- NOT rescheduling", e);
@@ -996,7 +1000,7 @@ public class ReindexingTask extends StepTask {
    *          A boolean with the indication of whether the AU being indexed is
    *          new to the index.
    */
-  public void setNewAu(boolean isNew) {
+  void setNewAu(boolean isNew) {
     isNewAu = isNew;
   }
 
@@ -1006,7 +1010,7 @@ public class ReindexingTask extends StepTask {
    * @param enable
    *          A boolean with the full re-indexing state of this task.
    */
-  public void setFullReindex(boolean enable) {
+  void setFullReindex(boolean enable) {
     needFullReindex = enable;
   }
 
@@ -1016,7 +1020,7 @@ public class ReindexingTask extends StepTask {
    * @param time
    *          A boolean with the full re-indexing state of this task.
    */
-  public void setLastExtractTime(long time) {
+  void setLastExtractTime(long time) {
     lastExtractTime = time;
   }
 

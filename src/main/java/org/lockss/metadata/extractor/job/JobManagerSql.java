@@ -1,34 +1,38 @@
 /*
 
- Copyright (c) 2016-2018 Board of Trustees of Leland Stanford Jr. University,
- all rights reserved.
+Copyright (c) 2016-2018 Board of Trustees of Leland Stanford Jr. University,
+all rights reserved.
 
- Permission is hereby granted, free of charge, to any person obtaining a copy
- of this software and associated documentation files (the "Software"), to deal
- in the Software without restriction, including without limitation the rights
- to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- copies of the Software, and to permit persons to whom the Software is
- furnished to do so, subject to the following conditions:
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
 
- The above copyright notice and this permission notice shall be included in
- all copies or substantial portions of the Software.
+1. Redistributions of source code must retain the above copyright notice, this
+list of conditions and the following disclaimer.
 
- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- STANFORD UNIVERSITY BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
- IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+2. Redistributions in binary form must reproduce the above copyright notice,
+this list of conditions and the following disclaimer in the documentation and/or
+other materials provided with the distribution.
 
- Except as contained in this notice, the name of Stanford University shall not
- be used in advertising or otherwise to promote the sale, use or other dealings
- in this Software without prior written authorization from Stanford University.
+3. Neither the name of the copyright holder nor the names of its contributors
+may be used to endorse or promote products derived from this software without
+specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
  */
-package org.lockss.laaws.mdx.job;
+package org.lockss.metadata.extractor.job;
 
 import static java.sql.Types.*;
-import static org.lockss.laaws.mdx.job.SqlConstants.*;
+import static org.lockss.metadata.extractor.job.SqlConstants.*;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -46,7 +50,7 @@ import org.lockss.util.Logger;
 /**
  * The JobManager SQL code executor.
  * 
- * @author Fernando Garcia-Loygorri
+ * @author Fernando García-Loygorri
  */
 public class JobManagerSql {
   private static final Logger log = Logger.getLogger(JobManagerSql.class);
@@ -147,16 +151,6 @@ public class JobManagerSql {
       + " from " + JOB_TABLE
       + " where " + PRIORITY_COLUMN + " >= 0) as temp_job_table))";
 
-  // Query to find a page of Archival Units.
-  private static final String FIND_OFFSET_AUS_QUERY = "select "
-      + JOB_SEQ_COLUMN
-      + ", " + JOB_TYPE_SEQ_COLUMN
-      + ", " + PLUGIN_ID_COLUMN
-      + ", " + AU_KEY_COLUMN
-      + " from " + JOB_TABLE
-      + " order by " + PLUGIN_ID_COLUMN + "," + AU_KEY_COLUMN
-      + " offset ?";
-
   // Query to find a page of jobs.
   private static final String FIND_OFFSET_JOBS_QUERY = "select "
       + JOB_SEQ_COLUMN
@@ -234,21 +228,14 @@ public class JobManagerSql {
       + ", " + STATUS_MESSAGE_COLUMN + " = ?"
       + " where " + JOB_SEQ_COLUMN + " = ?";
 
-  // Query to update the status of a job.
-  private static final String UPDATE_JOB_STATUS_QUERY = "update "
-      + JOB_TABLE
-      + " set " + JOB_STATUS_SEQ_COLUMN + " = ?"
-      + ", " + STATUS_MESSAGE_COLUMN + " = ?"
-      + " where " + JOB_SEQ_COLUMN + " = ?";
-
-  private final JobDbManagerMdx dbManager;
+  private final JobDbManager dbManager;
   private final Map<String, Long> jobStatusSeqByName;
   private final Map<String, Long> jobTypeSeqByName;
 
   /**
    * Constructor.
    */
-  JobManagerSql(JobDbManagerMdx dbManager) throws DbException {
+  JobManagerSql(JobDbManager dbManager) throws DbException {
     this.dbManager = dbManager;
 
     // Get a connection to the database.
@@ -258,7 +245,7 @@ public class JobManagerSql {
       jobStatusSeqByName = mapJobStatusByName(conn);
       jobTypeSeqByName = mapJobTypeByName(conn);
     } finally {
-      JobDbManagerMdx.safeRollbackAndClose(conn);
+      JobDbManager.safeRollbackAndClose(conn);
     }
   }
 
@@ -308,8 +295,8 @@ public class JobManagerSql {
       log.error("SQL = '" + GET_JOB_STATUSES_QUERY + "'.");
       throw dbe;
     } finally {
-      JobDbManagerMdx.safeCloseResultSet(resultSet);
-      JobDbManagerMdx.safeCloseStatement(stmt);
+      JobDbManager.safeCloseResultSet(resultSet);
+      JobDbManager.safeCloseStatement(stmt);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
@@ -361,8 +348,8 @@ public class JobManagerSql {
       log.error("SQL = '" + GET_JOB_TYPES_QUERY + "'.");
       throw dbe;
     } finally {
-      JobDbManagerMdx.safeCloseResultSet(resultSet);
-      JobDbManagerMdx.safeCloseStatement(stmt);
+      JobDbManager.safeCloseResultSet(resultSet);
+      JobDbManager.safeCloseStatement(stmt);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
@@ -401,9 +388,9 @@ public class JobManagerSql {
       // Create the Archival Unit metadata extraction job.
       result = createMetadataExtractionJob(conn, auId, needFullReindex);
 
-      JobDbManagerMdx.commitOrRollback(conn, log);
+      JobDbManager.commitOrRollback(conn, log);
     } finally {
-      JobDbManagerMdx.safeRollbackAndClose(conn);
+      JobDbManager.safeRollbackAndClose(conn);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "result = " + result);
@@ -518,35 +505,6 @@ public class JobManagerSql {
   /**
    * Provides the properties of a job.
    * 
-   * @param jobSeq
-   *          A Long with the job identifier.
-   * @return a JobAuStatus with the properties of the job.
-   * @throws DbException
-   *           if any problem occurred accessing the database.
-   */
-  JobAuStatus getJob(Long jobSeq) throws DbException {
-    final String DEBUG_HEADER = "getJob(): ";
-    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "jobSeq = " + jobSeq);
-
-    JobAuStatus result = null;
-    Connection conn = null;
-
-    try {
-      // Get a connection to the database.
-      conn = dbManager.getConnection();
-
-      result = getJob(conn, jobSeq);
-    } finally {
-      JobDbManagerMdx.safeRollbackAndClose(conn);
-    }
-
-    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "result = " + result);
-    return result;
-  }
-
-  /**
-   * Provides the properties of a job.
-   * 
    * @param conn
    *          A Connection with the database connection to be used.
    * @param jobSeq
@@ -588,8 +546,8 @@ public class JobManagerSql {
       log.error("jobSeq = " + jobSeq);
       throw dbe;
     } finally {
-      JobDbManagerMdx.safeCloseResultSet(resultSet);
-      JobDbManagerMdx.safeCloseStatement(findJob);
+      JobDbManager.safeCloseResultSet(resultSet);
+      JobDbManager.safeCloseStatement(findJob);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "job = " + job);
@@ -716,8 +674,8 @@ public class JobManagerSql {
       log.error("auKey = " + auKey);
       throw dbe;
     } finally {
-      JobDbManagerMdx.safeCloseResultSet(resultSet);
-      JobDbManagerMdx.safeCloseStatement(findJobs);
+      JobDbManager.safeCloseResultSet(resultSet);
+      JobDbManager.safeCloseStatement(findJobs);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "jobs = " + jobs);
@@ -771,7 +729,7 @@ public class JobManagerSql {
 
       if (description != null) {
 	createJob.setString(2,
-	    JobDbManagerMdx.truncateVarchar(description, MAX_DESCRIPTION_COLUMN));
+	    JobDbManager.truncateVarchar(description, MAX_DESCRIPTION_COLUMN));
       } else {
 	createJob.setNull(2, VARCHAR);
       }
@@ -799,7 +757,7 @@ public class JobManagerSql {
       createJob.setLong(8, jobStatusSeq);
 
       if (statusMessage != null) {
-	createJob.setString(9, JobDbManagerMdx.truncateVarchar(statusMessage,
+	createJob.setString(9, JobDbManager.truncateVarchar(statusMessage,
 	    MAX_STATUS_MESSAGE_COLUMN));
       } else {
 	createJob.setNull(9, VARCHAR);
@@ -846,214 +804,12 @@ public class JobManagerSql {
       log.error("statusMessage = " + statusMessage);
       throw dbe;
     } finally {
-      JobDbManagerMdx.safeCloseResultSet(resultSet);
-      JobDbManagerMdx.safeCloseStatement(createJob);
+      JobDbManager.safeCloseResultSet(resultSet);
+      JobDbManager.safeCloseStatement(createJob);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "jobSeq = " + jobSeq);
     return jobSeq;
-  }
-
-  /**
-   * Provides a list of existing Archival Units.
-   * 
-   * @param page
-   *          An Integer with the index of the page to be returned.
-   * @param limit
-   *          An Integer with the maximum number of Archival Units to be
-   *          returned.
-   * @return a List<JobAuStatus> with the existing Archival Units.
-   * @throws DbException
-   *           if any problem occurred accessing the database.
-   */
-  List<JobAuStatus> getAus(Integer page, Integer limit) throws DbException {
-    final String DEBUG_HEADER = "getAus(): ";
-    if (log.isDebug2()) {
-      log.debug(DEBUG_HEADER + "page = " + page);
-      log.debug(DEBUG_HEADER + "limit = " + limit);
-    }
-
-    List<JobAuStatus> result = null;
-    Connection conn = null;
-
-    try {
-      // Get a connection to the database.
-      conn = dbManager.getConnection();
-
-      // Get the Archival Units.
-      result = getAus(conn, page, limit);
-    } finally {
-      JobDbManagerMdx.safeRollbackAndClose(conn);
-    }
-
-    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "result = " + result);
-    return result;
-  }
-
-  /**
-   * Provides a list of existing Archival Units.
-   * 
-   * @param conn
-   *          A Connection with the database connection to be used.
-   * @param page
-   *          An Integer with the index of the page to be returned.
-   * @param limit
-   *          An Integer with the maximum number of Archival Units to be
-   *          returned.
-   * @return a List<JobAuStatus> with the existing Archival Units.
-   * @throws DbException
-   *           if any problem occurred accessing the database.
-   */
-  private List<JobAuStatus> getAus(Connection conn, Integer page, Integer limit)
-      throws DbException {
-    final String DEBUG_HEADER = "getAus(): ";
-    if (log.isDebug2()) {
-      log.debug(DEBUG_HEADER + "page = " + page);
-      log.debug(DEBUG_HEADER + "limit = " + limit);
-    }
-
-    List<JobAuStatus> aus = new ArrayList<JobAuStatus>();
-    String sql = FIND_OFFSET_AUS_QUERY;
-
-    if (dbManager.isTypeDerby()) {
-      sql = sql + " rows";
-    }
-
-    if (log.isDebug3()) log.debug3(DEBUG_HEADER + "sql = " + sql);
-
-    int offset = 0;
-
-    if (page != null && page.intValue() > 0
-	&& limit != null && limit.intValue() >= 0) {
-      offset = (page - 1) * limit;
-    }
-
-    if (log.isDebug3()) log.debug3(DEBUG_HEADER + "offset = " + offset);
-
-    PreparedStatement findAus = dbManager.prepareStatement(conn, sql);
-    ResultSet resultSet = null;
-    JobAuStatus au;
-
-    try {
-      // Get the Archival Units.
-      findAus.setInt(1, offset);
-
-      if (limit != null && limit.intValue() >= 0) {
-	findAus.setMaxRows(limit);
-      }
-
-      resultSet = dbManager.executeQuery(findAus);
-
-      Long deleteJobTypeSeq = jobTypeSeqByName.get(JOB_TYPE_DELETE_AU);
-      Long putFullJobTypeSeq = jobTypeSeqByName.get(JOB_TYPE_PUT_AU);
-      Long putIncrementalJobTypeSeq =
-	  jobTypeSeqByName.get(JOB_TYPE_PUT_INCREMENTAL_AU);
-      if (log.isDebug3()) {
-	log.debug3(DEBUG_HEADER + "deleteJobTypeSeq = " + deleteJobTypeSeq);
-	log.debug3(DEBUG_HEADER + "putFullJobTypeSeq = " + putFullJobTypeSeq);
-	log.debug3(DEBUG_HEADER + "putIncrementalJobTypeSeq = "
-	    + putIncrementalJobTypeSeq);
-      }
-
-      String previousAuId = null;
-      Long previousJobTypeSeq = null;
-
-      // Loop through the results.
-      while (resultSet.next()) {
-	// Get the next Archival Unit.
-	au = getAuFromResultSet(resultSet);
-	if (log.isDebug3()) log.debug3(DEBUG_HEADER + "Found au " + au);
-
-	String thisAuId = au.getAuId();
-	Long thisJobTypeSeq = au.getType();
-
-	if (log.isDebug3()) {
-	  log.debug3(DEBUG_HEADER + "previousAuId = " + previousAuId);
-	  log.debug3(DEBUG_HEADER + "previousJobTypeSeq = "
-	      + previousJobTypeSeq);
-	  log.debug3(DEBUG_HEADER + "thisAuId = " + thisAuId);
-	  log.debug3(DEBUG_HEADER + "thisJobTypeSeq = " + thisJobTypeSeq);
-	}
-
-	// Check whether this is the same Archival Unit as the previous one.
-	if (previousAuId != null && previousAuId.equals(thisAuId)) {
-	  if (log.isDebug3()) log.debug3(DEBUG_HEADER + "Matched previous");
-	  // Yes: Check whether the previous one was a PUT operation.
-	  if (putFullJobTypeSeq == previousJobTypeSeq
-	      || putIncrementalJobTypeSeq == previousJobTypeSeq) {
-	    // Yes: Ignore this one.
-	    if (log.isDebug3()) log.debug3(DEBUG_HEADER + "Ignore this one");
-	    continue;
-	    // No: Check whether the previous one was a DELETE operation while
-	    // this one is a PUT operation.
-	  } else if (deleteJobTypeSeq == previousJobTypeSeq
-	      && (putFullJobTypeSeq == thisJobTypeSeq
-	      || putIncrementalJobTypeSeq == thisJobTypeSeq)) {
-	    if (log.isDebug3()) log.debug3(DEBUG_HEADER + "Delete previous");
-	    // Yes: Replace the previous one with this one.
-	    aus.remove(aus.size() - 1);
-	  }
-	}
-
-	// Remember this Archival Unit to compare it to the next one.
-	previousAuId = thisAuId;
-	previousJobTypeSeq = thisJobTypeSeq;
-
-	// Add it to the results.
-	aus.add(au);
-      }
-    } catch (SQLException sqle) {
-      String message = "Cannot find AUs";
-      log.error(message, sqle);
-      log.error("SQL = '" + sql + "'.");
-      log.error("page = " + page);
-      log.error("limit = " + limit);
-      log.error("offset = " + offset);
-      throw new DbException(message, sqle);
-    } catch (DbException dbe) {
-      String message = "Cannot find AUs";
-      log.error(message, dbe);
-      log.error("SQL = '" + sql + "'.");
-      log.error("page = " + page);
-      log.error("limit = " + limit);
-      log.error("offset = " + offset);
-      throw dbe;
-    } finally {
-      JobDbManagerMdx.safeCloseResultSet(resultSet);
-      JobDbManagerMdx.safeCloseStatement(findAus);
-    }
-
-    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "aus = " + aus);
-    return aus;
-  }
-
-  /**
-   * Populates the data of an Archival Unit with a result set.
-   * 
-   * @param resultSet
-   *          A ResultSet with the source of the data.
-   * @return a JobAuStatus with the resulting Archival Unit data.
-   * @throws SQLException
-   *           if any problem occurred accessing the database.
-   */
-  private JobAuStatus getAuFromResultSet(ResultSet resultSet)
-      throws SQLException {
-    JobAuStatus au = new JobAuStatus();
-
-    au.setId(String.valueOf(resultSet.getLong(JOB_SEQ_COLUMN)));
-    au.setType(resultSet.getLong(JOB_TYPE_SEQ_COLUMN));
-
-    String pluginId = resultSet.getString(PLUGIN_ID_COLUMN);
-
-    if (pluginId != null && pluginId.trim().length() > 0) {
-      String auKey = resultSet.getString(AU_KEY_COLUMN);
-
-      if (auKey != null && auKey.trim().length() > 0) {
-	au.setAuId(PluginManager.generateAuId(pluginId, auKey));
-      }
-    }
-
-    return au;
   }
 
   /**
@@ -1082,9 +838,9 @@ public class JobManagerSql {
       // Create the Archival Unit metadata removal job.
       result = createMetadataRemovalJob(conn, auId);
 
-      JobDbManagerMdx.commitOrRollback(conn, log);
+      JobDbManager.commitOrRollback(conn, log);
     } finally {
-      JobDbManagerMdx.safeRollbackAndClose(conn);
+      JobDbManager.safeRollbackAndClose(conn);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "result = " + result);
@@ -1199,7 +955,7 @@ public class JobManagerSql {
       // Get the Archival Unit job.
       result = getAuJob(conn, auId);
     } finally {
-      JobDbManagerMdx.safeRollbackAndClose(conn);
+      JobDbManager.safeRollbackAndClose(conn);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "result = " + result);
@@ -1279,7 +1035,7 @@ public class JobManagerSql {
       // Get the jobs.
       result = getJobs(conn, page, limit);
     } finally {
-      JobDbManagerMdx.safeRollbackAndClose(conn);
+      JobDbManager.safeRollbackAndClose(conn);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "result = " + result);
@@ -1365,8 +1121,8 @@ public class JobManagerSql {
       log.error("offset = " + offset);
       throw dbe;
     } finally {
-      JobDbManagerMdx.safeCloseResultSet(resultSet);
-      JobDbManagerMdx.safeCloseStatement(findJobs);
+      JobDbManager.safeCloseResultSet(resultSet);
+      JobDbManager.safeCloseStatement(findJobs);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "jobs = " + jobs);
@@ -1392,9 +1148,9 @@ public class JobManagerSql {
       conn = dbManager.getConnection();
 
       deletedCount = deleteInactiveJobs(conn);
-      JobDbManagerMdx.commitOrRollback(conn, log);
+      JobDbManager.commitOrRollback(conn, log);
     } finally {
-      JobDbManagerMdx.safeRollbackAndClose(conn);
+      JobDbManager.safeRollbackAndClose(conn);
     }
 
     if (log.isDebug2())
@@ -1426,9 +1182,9 @@ public class JobManagerSql {
       conn = dbManager.getConnection();
 
       job = deleteJob(conn, jobSeq);
-      JobDbManagerMdx.commitOrRollback(conn, log);
+      JobDbManager.commitOrRollback(conn, log);
     } finally {
-      JobDbManagerMdx.safeRollbackAndClose(conn);
+      JobDbManager.safeRollbackAndClose(conn);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "job = " + job);
@@ -1517,7 +1273,7 @@ public class JobManagerSql {
       log.error("SQL = '" + DELETE_INACTIVE_JOBS_QUERY + "'.");
       throw new DbException(message, sqle);
     } finally {
-      JobDbManagerMdx.safeCloseStatement(deleteJob);
+      JobDbManager.safeCloseStatement(deleteJob);
     }
 
     if (log.isDebug2())
@@ -1565,7 +1321,7 @@ public class JobManagerSql {
       log.error("SQL = '" + DELETE_INACTIVE_JOB_QUERY + "'.");
       throw dbe;
     } finally {
-      JobDbManagerMdx.safeCloseStatement(deleteJob);
+      JobDbManager.safeCloseStatement(deleteJob);
     }
 
     if (log.isDebug2())
@@ -1598,7 +1354,7 @@ public class JobManagerSql {
 
       result = getJob(conn, jobId);
     } finally {
-      JobDbManagerMdx.safeRollbackAndClose(conn);
+      JobDbManager.safeRollbackAndClose(conn);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "result = " + result);
@@ -1662,9 +1418,9 @@ public class JobManagerSql {
       conn = dbManager.getConnection();
 
       freeIncompleteJobs(conn);
-      JobDbManagerMdx.commitOrRollback(conn, log);
+      JobDbManager.commitOrRollback(conn, log);
     } finally {
-      JobDbManagerMdx.safeRollbackAndClose(conn);
+      JobDbManager.safeRollbackAndClose(conn);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
@@ -1706,7 +1462,7 @@ public class JobManagerSql {
       log.error("SQL = '" + FREE_INCOMPLETE_JOBS_QUERY + "'.");
       throw dbe;
     } finally {
-      JobDbManagerMdx.safeCloseStatement(freeIncompleteJobs);
+      JobDbManager.safeCloseStatement(freeIncompleteJobs);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
@@ -1734,9 +1490,9 @@ public class JobManagerSql {
       conn = dbManager.getConnection();
 
       jobSeq = claimNextJob(conn, owner);
-      JobDbManagerMdx.commitOrRollback(conn, log);
+      JobDbManager.commitOrRollback(conn, log);
     } finally {
-      JobDbManagerMdx.safeRollbackAndClose(conn);
+      JobDbManager.safeRollbackAndClose(conn);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "jobSeq = " + jobSeq);
@@ -1822,8 +1578,8 @@ public class JobManagerSql {
       log.error("SQL = '" + FIND_HIGHEST_PRIORITY_JOBS_QUERY + "'.");
       throw dbe;
     } finally {
-      JobDbManagerMdx.safeCloseResultSet(resultSet);
-      JobDbManagerMdx.safeCloseStatement(findHighestPriorityJob);
+      JobDbManager.safeCloseResultSet(resultSet);
+      JobDbManager.safeCloseStatement(findHighestPriorityJob);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "jobSeq = " + jobSeq);
@@ -1844,7 +1600,7 @@ public class JobManagerSql {
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
-  boolean claimUnclaimedJob(Connection conn, String owner, Long jobSeq)
+  private boolean claimUnclaimedJob(Connection conn, String owner, Long jobSeq)
       throws DbException {
     final String DEBUG_HEADER = "claimUnclaimedJob(): ";
     if (log.isDebug2()) {
@@ -1859,7 +1615,7 @@ public class JobManagerSql {
 
     try {
       claimUnclaimedJob.setString(1,
-	  JobDbManagerMdx.truncateVarchar(owner, MAX_OWNER_COLUMN));
+	  JobDbManager.truncateVarchar(owner, MAX_OWNER_COLUMN));
       claimUnclaimedJob.setLong(2, jobSeq);
       updatedCount = dbManager.executeUpdate(claimUnclaimedJob);
       if (log.isDebug3())
@@ -1879,7 +1635,7 @@ public class JobManagerSql {
       log.error("SQL = '" + CLAIM_UNCLAIMED_JOB_QUERY + "'.");
       throw dbe;
     } finally {
-      JobDbManagerMdx.safeCloseStatement(claimUnclaimedJob);
+      JobDbManager.safeCloseStatement(claimUnclaimedJob);
     }
 
     if (log.isDebug2())
@@ -1909,7 +1665,7 @@ public class JobManagerSql {
 
       result = getJobType(conn, jobSeq);
     } finally {
-      JobDbManagerMdx.safeRollbackAndClose(conn);
+      JobDbManager.safeRollbackAndClose(conn);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "result = " + result);
@@ -1960,8 +1716,8 @@ public class JobManagerSql {
       log.error("jobSeq = " + jobSeq);
       throw dbe;
     } finally {
-      JobDbManagerMdx.safeCloseResultSet(resultSet);
-      JobDbManagerMdx.safeCloseStatement(findJob);
+      JobDbManager.safeCloseResultSet(resultSet);
+      JobDbManager.safeCloseStatement(findJob);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "jobType = " + jobType);
@@ -1997,7 +1753,7 @@ public class JobManagerSql {
     try {
       updateJobStatus.setLong(1, new Date().getTime());
       updateJobStatus.setLong(2, jobStatusSeqByName.get(JOB_STATUS_RUNNING));
-      updateJobStatus.setString(3, JobDbManagerMdx.truncateVarchar(statusMessage,
+      updateJobStatus.setString(3, JobDbManager.truncateVarchar(statusMessage,
 	  MAX_STATUS_MESSAGE_COLUMN));
       updateJobStatus.setLong(4, jobSeq);
       updatedCount = dbManager.executeUpdate(updateJobStatus);
@@ -2018,7 +1774,7 @@ public class JobManagerSql {
       log.error("SQL = '" + MARK_JOB_AS_RUNNING_QUERY + "'.");
       throw dbe;
     } finally {
-      JobDbManagerMdx.safeCloseStatement(updateJobStatus);
+      JobDbManager.safeCloseStatement(updateJobStatus);
     }
 
     if (log.isDebug2())
@@ -2058,7 +1814,7 @@ public class JobManagerSql {
     try {
       updateJobStatus.setLong(1, new Date().getTime());
       updateJobStatus.setLong(2, jobStatusSeqByName.get(statusName));
-      updateJobStatus.setString(3, JobDbManagerMdx.truncateVarchar(statusMessage,
+      updateJobStatus.setString(3, JobDbManager.truncateVarchar(statusMessage,
 	  MAX_STATUS_MESSAGE_COLUMN));
       updateJobStatus.setLong(4, jobSeq);
       updatedCount = dbManager.executeUpdate(updateJobStatus);
@@ -2081,31 +1837,12 @@ public class JobManagerSql {
       log.error("SQL = '" + MARK_JOB_AS_FINISHED_QUERY + "'.");
       throw dbe;
     } finally {
-      JobDbManagerMdx.safeCloseStatement(updateJobStatus);
+      JobDbManager.safeCloseStatement(updateJobStatus);
     }
 
     if (log.isDebug2())
       log.debug2(DEBUG_HEADER + "updatedCount = " + updatedCount);
     return updatedCount;
-  }
-
-  /**
-   * Marks a job as terminated.
-   * 
-   * @param conn
-   *          A Connection with the database connection to be used.
-   * @param jobSeq
-   *          A Long with the database identifier of the job being claimed.
-   * @param statusMessage
-   *          A String with the status message.
-   * @return an int with the count of jobs updated.
-   * @throws DbException
-   *           if any problem occurred accessing the database.
-   */
-  int markJobAsTerminated(Connection conn, Long jobSeq, String statusMessage)
-      throws DbException {
-    return markJobAsFinished(conn, jobSeq, JOB_STATUS_TERMINATED,
-	statusMessage);
   }
 
   /**
@@ -2124,68 +1861,6 @@ public class JobManagerSql {
   int markJobAsDone(Connection conn, Long jobSeq, String statusMessage)
       throws DbException {
     return markJobAsFinished(conn, jobSeq, JOB_STATUS_DONE, statusMessage);
-  }
-
-  /**
-   * Updates the status of job.
-   * 
-   * @param conn
-   *          A Connection with the database connection to be used.
-   * @param jobSeq
-   *          A Long with the database identifier of the job being claimed.
-   * @param statusName
-   *          A String with the name of the job status.
-   * @param statusMessage
-   *          A String with the status message.
-   * @return an int with the count of jobs updated.
-   * @throws DbException
-   *           if any problem occurred accessing the database.
-   */
-  int updateJobStatus(Connection conn, Long jobSeq, String statusName,
-      String statusMessage) throws DbException {
-    final String DEBUG_HEADER = "updateJobStatus(): ";
-    if (log.isDebug2()) {
-      log.debug(DEBUG_HEADER + "jobSeq = " + jobSeq);
-      log.debug(DEBUG_HEADER + "statusName = " + statusName);
-      log.debug(DEBUG_HEADER + "statusMessage = " + statusMessage);
-    }
-
-    int updatedCount = -1;
-
-    PreparedStatement updateJobStatus =
-	dbManager.prepareStatement(conn, UPDATE_JOB_STATUS_QUERY);
-
-    try {
-      updateJobStatus.setString(1, statusName);
-      updateJobStatus.setString(2, JobDbManagerMdx.truncateVarchar(statusMessage,
-	  MAX_STATUS_MESSAGE_COLUMN));
-      updateJobStatus.setLong(3, jobSeq);
-      updatedCount = dbManager.executeUpdate(updateJobStatus);
-      if (log.isDebug3())
-	log.debug3(DEBUG_HEADER + "updatedCount = " + updatedCount);
-    } catch (SQLException sqle) {
-      String message = "Cannot update job status";
-      log.error(message, sqle);
-      log.error("jobSeq = " + jobSeq);
-      log.error("statusName = '" + statusName + "'.");
-      log.error("statusMessage = '" + statusMessage + "'.");
-      log.error("SQL = '" + UPDATE_JOB_STATUS_QUERY + "'.");
-      throw new DbException(message, sqle);
-    } catch (DbException dbe) {
-      String message = "Cannot update job status";
-      log.error(message, dbe);
-      log.error("jobSeq = " + jobSeq);
-      log.error("statusName = '" + statusName + "'.");
-      log.error("statusMessage = '" + statusMessage + "'.");
-      log.error("SQL = '" + UPDATE_JOB_STATUS_QUERY + "'.");
-      throw dbe;
-    } finally {
-      JobDbManagerMdx.safeCloseStatement(updateJobStatus);
-    }
-
-    if (log.isDebug2())
-      log.debug2(DEBUG_HEADER + "updatedCount = " + updatedCount);
-    return updatedCount;
   }
 
   /**
@@ -2238,8 +1913,8 @@ public class JobManagerSql {
       log.error("jobSeq = " + jobSeq);
       throw dbe;
     } finally {
-      JobDbManagerMdx.safeCloseResultSet(resultSet);
-      JobDbManagerMdx.safeCloseStatement(findJob);
+      JobDbManager.safeCloseResultSet(resultSet);
+      JobDbManager.safeCloseStatement(findJob);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "auId = " + auId);

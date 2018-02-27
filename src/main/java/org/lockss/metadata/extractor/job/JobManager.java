@@ -1,31 +1,35 @@
 /*
 
- Copyright (c) 2016-2018 Board of Trustees of Leland Stanford Jr. University,
- all rights reserved.
+Copyright (c) 2016-2018 Board of Trustees of Leland Stanford Jr. University,
+all rights reserved.
 
- Permission is hereby granted, free of charge, to any person obtaining a copy
- of this software and associated documentation files (the "Software"), to deal
- in the Software without restriction, including without limitation the rights
- to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- copies of the Software, and to permit persons to whom the Software is
- furnished to do so, subject to the following conditions:
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
 
- The above copyright notice and this permission notice shall be included in
- all copies or substantial portions of the Software.
+1. Redistributions of source code must retain the above copyright notice, this
+list of conditions and the following disclaimer.
 
- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- STANFORD UNIVERSITY BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
- IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+2. Redistributions in binary form must reproduce the above copyright notice,
+this list of conditions and the following disclaimer in the documentation and/or
+other materials provided with the distribution.
 
- Except as contained in this notice, the name of Stanford University shall not
- be used in advertising or otherwise to promote the sale, use or other dealings
- in this Software without prior written authorization from Stanford University.
+3. Neither the name of the copyright holder nor the names of its contributors
+may be used to endorse or promote products derived from this software without
+specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
  */
-package org.lockss.laaws.mdx.job;
+package org.lockss.metadata.extractor.job;
 
 import java.sql.Connection;
 import java.util.ArrayList;
@@ -37,23 +41,24 @@ import org.lockss.app.ConfigurableManager;
 import org.lockss.app.LockssApp;
 import org.lockss.config.Configuration;
 import org.lockss.db.DbException;
-import org.lockss.laaws.mdx.DeleteMetadataTask;
-import org.lockss.laaws.mdx.MetadataExtractorManager;
-import org.lockss.laaws.mdx.MetadataExtractorManager.ReindexingStatus;
-import org.lockss.laaws.mdx.ReindexingTask;
+import org.lockss.metadata.extractor.DeleteMetadataTask;
+import org.lockss.metadata.extractor.MetadataExtractorManager;
+import org.lockss.metadata.extractor.MetadataExtractorManager.ReindexingStatus;
+import org.lockss.metadata.extractor.ReindexingTask;
 import org.lockss.plugin.ArchivalUnit;
 import org.lockss.plugin.PluginManager;
 import org.lockss.scheduler.StepTask;
 import org.lockss.util.Logger;
 
 /**
- * This class implements a job manager that is responsible for background tasks.
+ * Job manager that is responsible for background tasks processing the metadata
+ * of Archival Units.
  * 
- * @author Fernando Garcia-Loygorri
+ * @author Fernando García-Loygorri
  */
-public class JobManagerMdx extends BaseLockssDaemonManager implements
+public class JobManager extends BaseLockssDaemonManager implements
     ConfigurableManager {
-  private static final Logger log = Logger.getLogger(JobManagerMdx.class);
+  private static final Logger log = Logger.getLogger(JobManager.class);
 
   /**
    * Prefix for configuration properties.
@@ -100,7 +105,7 @@ public class JobManagerMdx extends BaseLockssDaemonManager implements
   private PluginManager pluginManager = null;
 
   // The database manager.
-  private JobDbManagerMdx dbManager = null;
+  private JobDbManager dbManager = null;
 
   // The metadata extractor manager.
   private MetadataExtractorManager mdxManager = null;
@@ -163,7 +168,7 @@ public class JobManagerMdx extends BaseLockssDaemonManager implements
 
     pluginManager = getDaemon().getPluginManager();
 
-    dbManager = LockssApp.getManagerByTypeStatic(JobDbManagerMdx.class);
+    dbManager = LockssApp.getManagerByTypeStatic(JobDbManager.class);
     mdxManager =
 	LockssApp.getManagerByTypeStatic(MetadataExtractorManager.class);
 
@@ -252,46 +257,6 @@ public class JobManagerMdx extends BaseLockssDaemonManager implements
   }
 
   /**
-   * Provides a list of existing Archival Units.
-   * 
-   * @param page
-   *          An Integer with the index of the page to be returned.
-   * @param limit
-   *          An Integer with the maximum number of Archival Units to be
-   *          returned.
-   * @return a List<Au> with the existing Archival Units.
-   * @throws Exception
-   *           if there are problems getting the Archival Units.
-   */
-  public List<JobAuStatus> getAus(Integer page, Integer limit)
-      throws Exception {
-    final String DEBUG_HEADER = "getAus(): ";
-    if (log.isDebug2()) {
-      log.debug2(DEBUG_HEADER + "page = " + page);
-      log.debug2(DEBUG_HEADER + "limit = " + limit);
-    }
-
-    List<JobAuStatus> aus = new ArrayList<JobAuStatus>();
-    List<JobAuStatus> dbAus = null;
-
-    try {
-      dbAus = jobManagerSql.getAus(page, limit);
-    } catch (Exception e) {
-      String message =
-	  "Cannot get Archival Units for page = " + page + ", limit = " + limit;
-      log.error(message, e);
-      throw new Exception(message, e);
-    }
-
-    for (JobAuStatus dbAu : dbAus) {
-      dbAu.setAuName(getAuName(dbAu.getAuId()));
-      aus.add(dbAu);
-    }
-
-    return aus;
-  }
-
-  /**
    * Schedules the removal of the metadata stored for an Archival Unit given its
    * identifier.
    * 
@@ -323,45 +288,6 @@ public class JobManagerMdx extends BaseLockssDaemonManager implements
     } catch (Exception e) {
       log.error(message, e);
       throw e;
-    }
-
-    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "job = " + job);
-    return job;
-  }
-
-  /**
-   * Provides the job for an Archival Unit given the AU identifier.
-   * 
-   * @param auId
-   *          A String with the Archival Unit identifier.
-   * @return a JobAuStatus with the details of the Archival Unit job.
-   * @throws IllegalArgumentException
-   *           if the Archival Unit does not exist.
-   * @throws Exception
-   *           if there are problems retrieving the job.
-   */
-  public JobAuStatus getAuJob(String auId)
-      throws IllegalArgumentException, Exception {
-    final String DEBUG_HEADER = "getAuJob(): ";
-    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "auId = " + auId);
-
-    JobAuStatus job = null;
-    String auName = getAuName(auId);
-    String message = "Cannot get job for auId = '" + auId + "'";
-
-    try {
-      job = jobManagerSql.getAuJob(auId);
-      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "job = " + job);
-
-      if (job != null) {
-	job.setAuName(auName);
-      }
-    } catch (IllegalArgumentException iae) {
-      log.error(message, iae);
-      throw iae;
-    } catch (Exception e) {
-      log.error(message, e);
-      throw new Exception(message, e);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "job = " + job);
@@ -405,45 +331,6 @@ public class JobManagerMdx extends BaseLockssDaemonManager implements
     }
 
     return jobs;
-  }
-
-  /**
-   * Deletes the job for an AU given the Archival Unit identifier if it's queued
-   * and it stops any processing and deletes it if it's active.
-   * 
-   * @param auId
-   *          A String with the Archival Unit identifier.
-   * @return a JobAuStatus with the details of the scheduled job removal job.
-   * @throws IllegalArgumentException
-   *           if the Archival Unit does not exist.
-   * @throws Exception
-   *           if there are problems removing the job.
-   */
-  public JobAuStatus removeAuJob(String auId)
-      throws IllegalArgumentException, Exception {
-    final String DEBUG_HEADER = "removeAuJob(): ";
-    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "auId = " + auId);
-
-    JobAuStatus job = null;
-    String message = "Cannot remove AU job for auId = " + auId;
-
-    try {
-      JobAuStatus auJob = getAuJob(auId);
-      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auJob = " + auJob);
-
-      if (auJob != null) {
-	job = removeJob(auJob.getId());
-      }
-    } catch (IllegalArgumentException iae) {
-      log.error(message, iae);
-      throw iae;
-    } catch (Exception e) {
-      log.error(message, e);
-      throw new Exception(message, e);
-    }
-
-    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "job = " + job);
-    return job;
   }
 
   /**
@@ -604,12 +491,12 @@ public class JobManagerMdx extends BaseLockssDaemonManager implements
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "jobSeq = " + jobSeq);
 
       jobManagerSql.markJobAsRunning(conn, jobSeq, "Extracting metadata");
-      JobDbManagerMdx.commitOrRollback(conn, log);
+      JobDbManager.commitOrRollback(conn, log);
     } catch (Exception e) {
       String message = "Error handling start of metadata extraction";
       log.error(message, e);
     } finally {
-      JobDbManagerMdx.safeRollbackAndClose(conn);
+      JobDbManager.safeRollbackAndClose(conn);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
@@ -662,7 +549,7 @@ public class JobManagerMdx extends BaseLockssDaemonManager implements
 	if (log.isDebug3())
 	  log.debug3(DEBUG_HEADER + "markedJobs = " + markedJobs);
 
-	JobDbManagerMdx.commitOrRollback(conn, log);
+	JobDbManager.commitOrRollback(conn, log);
       }
 
       // Loop through all the tasks.
@@ -685,7 +572,7 @@ public class JobManagerMdx extends BaseLockssDaemonManager implements
       String message = "Error handling finish of metadata extraction";
       log.error(message, e);
     } finally {
-      JobDbManagerMdx.safeRollbackAndClose(conn);
+      JobDbManager.safeRollbackAndClose(conn);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
@@ -712,12 +599,12 @@ public class JobManagerMdx extends BaseLockssDaemonManager implements
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "jobSeq = " + jobSeq);
 
       jobManagerSql.markJobAsRunning(conn, jobSeq, "Deleting metadata");
-      JobDbManagerMdx.commitOrRollback(conn, log);
+      JobDbManager.commitOrRollback(conn, log);
     } catch (Exception e) {
       String message = "Error handling start of metadata removal";
       log.error(message, e);
     } finally {
-      JobDbManagerMdx.safeRollbackAndClose(conn);
+      JobDbManager.safeRollbackAndClose(conn);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
@@ -765,7 +652,7 @@ public class JobManagerMdx extends BaseLockssDaemonManager implements
 	if (log.isDebug3())
 	  log.debug3(DEBUG_HEADER + "markedJobs = " + markedJobs);
 
-	JobDbManagerMdx.commitOrRollback(conn, log);
+	JobDbManager.commitOrRollback(conn, log);
       }
 
       for (JobTask jobTask : tasks) {
@@ -781,7 +668,7 @@ public class JobManagerMdx extends BaseLockssDaemonManager implements
       String message = "Error handling finish of metadata removal";
       log.error(message, e);
     } finally {
-      JobDbManagerMdx.safeRollbackAndClose(conn);
+      JobDbManager.safeRollbackAndClose(conn);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");

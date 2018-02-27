@@ -1,44 +1,48 @@
 /*
 
- Copyright (c) 2016-2018 Board of Trustees of Leland Stanford Jr. University,
- all rights reserved.
+Copyright (c) 2016-2018 Board of Trustees of Leland Stanford Jr. University,
+all rights reserved.
 
- Permission is hereby granted, free of charge, to any person obtaining a copy
- of this software and associated documentation files (the "Software"), to deal
- in the Software without restriction, including without limitation the rights
- to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- copies of the Software, and to permit persons to whom the Software is
- furnished to do so, subject to the following conditions:
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
 
- The above copyright notice and this permission notice shall be included in
- all copies or substantial portions of the Software.
+1. Redistributions of source code must retain the above copyright notice, this
+list of conditions and the following disclaimer.
 
- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- STANFORD UNIVERSITY BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
- IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+2. Redistributions in binary form must reproduce the above copyright notice,
+this list of conditions and the following disclaimer in the documentation and/or
+other materials provided with the distribution.
 
- Except as contained in this notice, the name of Stanford University shall not
- be used in advertising or otherwise to promote the sale, use or other dealings
- in this Software without prior written authorization from Stanford University.
+3. Neither the name of the copyright holder nor the names of its contributors
+may be used to endorse or promote products derived from this software without
+specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
  */
-package org.lockss.laaws.mdx.job;
+package org.lockss.metadata.extractor.job;
 
-import static org.lockss.laaws.mdx.job.SqlConstants.*;
+import static org.lockss.metadata.extractor.job.SqlConstants.*;
 import java.sql.Connection;
 import org.lockss.app.LockssDaemon;
 import org.lockss.db.DbException;
-import org.lockss.laaws.mdx.MetadataExtractorManager;
+import org.lockss.metadata.extractor.MetadataExtractorManager;
 import org.lockss.scheduler.StepTask;
 import org.lockss.util.Logger;
 
 /**
- * Processor for a job.
+ * Processor for a job processing the metadata of an Archival Unit..
  * 
- * @author Fernando Garcia-Loygorri
+ * @author Fernando García-Loygorri
  */
 public class JobTask implements Runnable {
   private static final Logger log = Logger.getLogger(JobTask.class);
@@ -47,9 +51,9 @@ public class JobTask implements Runnable {
   private String baseTaskName;
   private String taskName;
   private Long jobSeq = null;
-  private JobDbManagerMdx dbManager;
+  private JobDbManager dbManager;
   private MetadataExtractorManager mdxManager;
-  private JobManagerMdx jobManager;
+  private JobManager jobManager;
   private boolean isJobFinished = false;
   private StepTask stepTask = null;
 
@@ -59,8 +63,8 @@ public class JobTask implements Runnable {
    * @param jobManagerSql
    *          A JobManagerSql with the Job SQL code executor.
    */
-  public JobTask(JobDbManagerMdx dbManager, MetadataExtractorManager mdxManager,
-      JobManagerMdx jobManager) {
+  public JobTask(JobDbManager dbManager, MetadataExtractorManager mdxManager,
+      JobManager jobManager) {
     this.dbManager = dbManager;
     this.mdxManager = mdxManager;
     this.jobManager = jobManager;
@@ -154,10 +158,10 @@ public class JobTask implements Runnable {
         conn = dbManager.getConnection();
 
         jobManager.markJobAsDone(conn, jobSeq, "Unknown job type");
-        JobDbManagerMdx.commitOrRollback(conn, log);
+        JobDbManager.commitOrRollback(conn, log);
         log.error("Ignored job " + jobSeq + " of unknown type = " + jobType);
       } finally {
-	JobDbManagerMdx.safeRollbackAndClose(conn);
+	JobDbManager.safeRollbackAndClose(conn);
       }
     }
 
@@ -191,7 +195,7 @@ public class JobTask implements Runnable {
 
       processPutAuJob(conn, jobSeq, needFullReindex);
     } finally {
-      JobDbManagerMdx.safeRollbackAndClose(conn);
+      JobDbManager.safeRollbackAndClose(conn);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
@@ -252,7 +256,7 @@ public class JobTask implements Runnable {
 
       processDeleteAuJob(conn, jobSeq);
     } finally {
-      JobDbManagerMdx.safeRollbackAndClose(conn);
+      JobDbManager.safeRollbackAndClose(conn);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
@@ -293,7 +297,7 @@ public class JobTask implements Runnable {
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
-  public void terminateTask() throws DbException {
+  void terminateTask() throws DbException {
     final String DEBUG_HEADER = "terminateTask() - " + taskName + ": ";
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Invoked.");
 
@@ -306,9 +310,9 @@ public class JobTask implements Runnable {
 
 	jobManager.markJobAsFinished(conn, jobSeq, JOB_STATUS_TERMINATED,
 	    "Terminated by request");
-	JobDbManagerMdx.commitOrRollback(conn, log);
+	JobDbManager.commitOrRollback(conn, log);
       } finally {
-	JobDbManagerMdx.safeRollbackAndClose(conn);
+	JobDbManager.safeRollbackAndClose(conn);
       }
     } else {
       if (log.isDebug3())
@@ -337,7 +341,7 @@ public class JobTask implements Runnable {
    * 
    * @return a Long with the job identifier of this task.
    */
-  public Long getJobId() {
+  Long getJobId() {
     return jobSeq;
   }
 
@@ -346,7 +350,7 @@ public class JobTask implements Runnable {
    * 
    * @return a StepTask with the underlying step task of this task.
    */
-  public StepTask getStepTask() {
+  StepTask getStepTask() {
     return stepTask;
   }
 

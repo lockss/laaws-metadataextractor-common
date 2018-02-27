@@ -55,6 +55,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   <properties>
     <loglevel>info</loglevel>
     <outputtofile>true</outputtofile>
+    <test.fork.count>1.0C</test.fork.count>
     <trimstack>false</trimstack>
   </properties>
 
@@ -88,5 +89,37 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
       <scope>test</scope>
     </dependency>
   </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <includes>
+            <include>**/Test*.java</include>
+            <include>**/Func*.java</include>
+          </includes>
+          <excludes>
+            <!-- SOAP tests waiting for Jetty upgrade -->
+            <exclude>**/ws/*/Func*.java</exclude>
+            <!-- Default excludes -->
+              <exclude>**/*$*</exclude>
+          </excludes>
+          <redirectTestOutputToFile>${outputtofile}</redirectTestOutputToFile>
+          <forkCount>${test.fork.count}</forkCount>
+          <reuseForks>false</reuseForks>
+          <trimStackTrace>${trimstack}</trimStackTrace>
+          <systemPropertyVariables>
+            <org.lockss.unitTesting>true</org.lockss.unitTesting>
+            <org.lockss.defaultLogLevel>${loglevel}</org.lockss.defaultLogLevel>
+            <org.lockss.defaultLogTarget>
+              org.lockss.util.StdErrTarget
+            </org.lockss.defaultLogTarget>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
 
 </project>

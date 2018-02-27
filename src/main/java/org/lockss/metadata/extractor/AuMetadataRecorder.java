@@ -1,34 +1,38 @@
 /*
 
- Copyright (c) 2013-2018 Board of Trustees of Leland Stanford Jr. University,
- all rights reserved.
+Copyright (c) 2013-2018 Board of Trustees of Leland Stanford Jr. University,
+all rights reserved.
 
- Permission is hereby granted, free of charge, to any person obtaining a copy
- of this software and associated documentation files (the "Software"), to deal
- in the Software without restriction, including without limitation the rights
- to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- copies of the Software, and to permit persons to whom the Software is
- furnished to do so, subject to the following conditions:
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
 
- The above copyright notice and this permission notice shall be included in
- all copies or substantial portions of the Software.
+1. Redistributions of source code must retain the above copyright notice, this
+list of conditions and the following disclaimer.
 
- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- STANFORD UNIVERSITY BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
- IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+2. Redistributions in binary form must reproduce the above copyright notice,
+this list of conditions and the following disclaimer in the documentation and/or
+other materials provided with the distribution.
 
- Except as contained in this notice, the name of Stanford University shall not
- be used in advertising or otherwise to promote the sale, use or other dealings
- in this Software without prior written authorization from Stanford University.
+3. Neither the name of the copyright holder nor the names of its contributors
+may be used to endorse or promote products derived from this software without
+specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
  */
-package org.lockss.laaws.mdx;
+package org.lockss.metadata.extractor;
 
 import static org.lockss.metadata.SqlConstants.*;
-import static org.lockss.laaws.mdx.MetadataExtractorManager.*;
+import static org.lockss.metadata.extractor.MetadataExtractorManager.*;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -48,9 +52,9 @@ import org.lockss.db.DbException;
 import org.lockss.exporter.counter.CounterReportsManager;
 import org.lockss.extractor.MetadataField;
 import org.lockss.laaws.mdq.model.ItemMetadata;
-import org.lockss.laaws.mdx.ArticleMetadataBuffer.ArticleMetadataInfo;
 import org.lockss.metadata.MetadataDbManager;
-import org.lockss.metadata.StoreAuItemClient;
+import org.lockss.metadata.MetadataManager;
+import org.lockss.metadata.extractor.ArticleMetadataBuffer.ArticleMetadataInfo;
 import org.lockss.plugin.ArchivalUnit;
 import org.lockss.plugin.AuUtil;
 import org.lockss.plugin.Plugin;
@@ -63,7 +67,7 @@ import org.lockss.util.TimeBase;
 /**
  * Writes to the database metadata related to an archival unit.
  * 
- * @author Fernando Garcia-Loygorri
+ * @author Fernando García-Loygorri
  */
 public class AuMetadataRecorder {
   private static Logger log = Logger.getLogger(AuMetadataRecorder.class);
@@ -113,17 +117,6 @@ public class AuMetadataRecorder {
       + " from " + AU_MD_TABLE
       + " where " + AU_SEQ_COLUMN + " = ?";
 
-  // Query to add a bibliographic item.
-  private static final String INSERT_BIB_ITEM_QUERY = "insert into "
-      + BIB_ITEM_TABLE
-      + "(" + MD_ITEM_SEQ_COLUMN
-      + "," + VOLUME_COLUMN
-      + "," + ISSUE_COLUMN
-      + "," + START_PAGE_COLUMN
-      + "," + END_PAGE_COLUMN
-      + "," + ITEM_NO_COLUMN
-      + ") values (?,?,?,?,?,?)";
-
   // Query to find a metadata item by its type, Archival Unit and access URL.
   private static final String FIND_MD_ITEM_QUERY = "select "
       + "m." + MD_ITEM_SEQ_COLUMN
@@ -132,7 +125,8 @@ public class AuMetadataRecorder {
       + " where m." + MD_ITEM_TYPE_SEQ_COLUMN + " = ?"
       + " and m." + AU_MD_SEQ_COLUMN + " = ?"
       + " and m." + MD_ITEM_SEQ_COLUMN + " = u." + MD_ITEM_SEQ_COLUMN
-      + " and u." + FEATURE_COLUMN + " = '" + ACCESS_URL_FEATURE + "'"
+      + " and u." + FEATURE_COLUMN + " = '" + MetadataManager.ACCESS_URL_FEATURE
+      + "'"
       + " and u." + URL_COLUMN + " = ?";
 
   // Query to get the name of a publisher.
@@ -236,6 +230,12 @@ public class AuMetadataRecorder {
   // The database manager.
   private final MetadataDbManager dbManager;
 
+  // The metadata manager.
+  private final MetadataManager mdManager;
+
+  // The metadata manager SQL executor.
+  //private final MetadataManagerSql mdManagerSql;
+
   // The archival unit.
   private final ArchivalUnit au;
 
@@ -274,9 +274,12 @@ public class AuMetadataRecorder {
   /**
    * Constructor.
    * 
-   * @param task A ReindexingTaskwith the calling task.
-   * @param mdManager A MetadataManager with the metadata manager.
-   * @param au An ArchivalUnit with the archival unit.
+   * @param task
+   *          A ReindexingTaskwith the calling task.
+   * @param mdManager
+   *          A MetadataManager with the metadata manager.
+   * @param au
+   *          An ArchivalUnit with the archival unit.
    */
   public AuMetadataRecorder(ReindexingTask task,
       MetadataExtractorManager mdxManager, ArchivalUnit au) {
@@ -284,6 +287,7 @@ public class AuMetadataRecorder {
     this.mdxManager = mdxManager;
     mdxManagerSql = mdxManager.getMetadataExtractorManagerSql();
     dbManager = mdxManager.getDbManager();
+    mdManager = mdxManager.getMetadataManager();
     this.au = au;
 
     plugin = au.getPlugin();
@@ -298,8 +302,8 @@ public class AuMetadataRecorder {
   /**
    * Constructor.
    * 
-   * @param mdManager
-   *          A MetadataManager with the metadata manager.
+   * @param mdxManager
+   *          A MetadataExtractorManager with the metadata manager.
    * @param plugin
    *          A Plugin with the Archival Unit plugin.
    * @param auId
@@ -311,6 +315,7 @@ public class AuMetadataRecorder {
     this.mdxManager = mdxManager;
     mdxManagerSql = mdxManager.getMetadataExtractorManagerSql();
     dbManager = mdxManager.getDbManager();
+    mdManager = mdxManager.getMetadataManager();
     this.au = null;
 
     this.plugin = plugin;
@@ -329,15 +334,14 @@ public class AuMetadataRecorder {
    *          A Connection with the database connection to be used.
    * @param mditr
    *          An Iterator<ArticleMetadataInfo> with the metadata.
-   * @throws MetadataException
+   * @throws MetadataExtractorException
    *           if any problem is detected with the passed metadata or the task
    *           is cancelled.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
-  public void recordMetadata(Connection conn,
-      Iterator<ArticleMetadataInfo> mditr) throws MetadataException,
-      DbException {
+  void recordMetadata(Connection conn, Iterator<ArticleMetadataInfo> mditr)
+      throws MetadataExtractorException, DbException {
     final String DEBUG_HEADER = "recordMetadata(): ";
 
     // Get the mandatory metadata fields.
@@ -348,7 +352,7 @@ public class AuMetadataRecorder {
     // Loop through the metadata for each item.
     while (mditr.hasNext()) {
       if (task.isCancelled()) {
-	throw new MetadataException("Reindexing task cancelled");
+	throw new MetadataExtractorException("Reindexing task cancelled");
       }
 
       task.pokeWDog();
@@ -403,13 +407,13 @@ public class AuMetadataRecorder {
    * @param mditr
    *          An Iterator<ArticleMetadataInfo> with the metadata.
    * @return a Long with the database identifier of the metadata item.
-   * @throws MetadataException
+   * @throws MetadataExtractorException
    *           if any problem is detected with the passed metadata.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
-  public Long recordMetadataItem(Connection conn, List<String> mandatoryFields,
-      Iterator<ArticleMetadataInfo> mditr) throws MetadataException,
+  Long recordMetadataItem(Connection conn, List<String> mandatoryFields,
+      Iterator<ArticleMetadataInfo> mditr) throws MetadataExtractorException,
       DbException {
     final String DEBUG_HEADER = "recordMetadataItem(): ";
     if (log.isDebug2())
@@ -456,7 +460,7 @@ public class AuMetadataRecorder {
    *           if the validation fails.
    */
   void validateMetadata(ArticleMetadataInfo mdinfo,
-      List<String> mandatoryFields) throws MetadataException {
+      List<String> mandatoryFields) throws MetadataExtractorException {
     if (mandatoryFields == null || mandatoryFields.size() == 0) {
       return;
     }
@@ -465,191 +469,217 @@ public class AuMetadataRecorder {
       switch (mandatoryField) {
       case "publisher":
 	if (StringUtil.isNullString(mdinfo.publisher)) {
-	  throw new MetadataException("Missing mandatory metadata field '"
+	  throw new MetadataExtractorException("Missing mandatory metadata field '"
 	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "provider":
 	if (StringUtil.isNullString(mdinfo.provider)) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "publicationTitle":
 	if (StringUtil.isNullString(mdinfo.publicationTitle)) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "publicationType":
 	if (StringUtil.isNullString(mdinfo.publicationType)) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "articleTitle":
 	if (StringUtil.isNullString(mdinfo.articleTitle)) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "articleType":
 	if (StringUtil.isNullString(mdinfo.articleType)) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "accessUrl":
 	if (StringUtil.isNullString(mdinfo.accessUrl)) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "isbn":
 	if (StringUtil.isNullString(mdinfo.isbn)) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "eisbn":
 	if (StringUtil.isNullString(mdinfo.eisbn)) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "issn":
 	if (StringUtil.isNullString(mdinfo.issn)) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "eissn":
 	if (StringUtil.isNullString(mdinfo.eissn)) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "doi":
 	if (StringUtil.isNullString(mdinfo.doi)) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "pubDate":
 	if (StringUtil.isNullString(mdinfo.pubDate)) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "pubYear":
 	if (StringUtil.isNullString(mdinfo.pubYear)) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "volume":
 	if (StringUtil.isNullString(mdinfo.volume)) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "issue":
 	if (StringUtil.isNullString(mdinfo.issue)) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "startPage":
 	if (StringUtil.isNullString(mdinfo.startPage)) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "endPage":
 	if (StringUtil.isNullString(mdinfo.endPage)) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "seriesTitle":
 	if (StringUtil.isNullString(mdinfo.seriesTitle)) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "authors":
 	if (mdinfo.authors == null || mdinfo.authors.size() == 0) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "keywords":
 	if (mdinfo.keywords == null || mdinfo.keywords.size() == 0) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "featuredUrlMap":
 	if (mdinfo.featuredUrlMap == null
 	|| mdinfo.featuredUrlMap.size() == 0) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "coverage":
 	if (StringUtil.isNullString(mdinfo.coverage)) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "itemNumber":
 	if (StringUtil.isNullString(mdinfo.itemNumber)) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "proprietaryIdentifier":
 	if (StringUtil.isNullString(mdinfo.proprietaryIdentifier)) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "proprietarySeriesIdentifier":
 	if (StringUtil.isNullString(mdinfo.proprietarySeriesIdentifier)) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "fetchTime":
 	if (StringUtil.isNullString(mdinfo.fetchTime)) {
-	  throw new MetadataException("Missing mandatory metadata field '"
-	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
+	  throw new MetadataExtractorException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
 	}
 	break;
 
@@ -998,7 +1028,7 @@ public class AuMetadataRecorder {
     final String DEBUG_HEADER = "replaceGenSym(): ";
 
     // Find the publication names.
-    Map<String, String> names = mdxManagerSql.getMdItemNames(conn, mdSequence);
+    Map<String, String> names = mdManager.getMdItemNames(conn, mdSequence);
     if (log.isDebug3())
       log.debug3(DEBUG_HEADER + "names.size() = " + names.size());
 
@@ -1149,13 +1179,13 @@ public class AuMetadataRecorder {
    * @param mdinfo
    *          An ArticleMetadataInfo providing the metadata.
    * @return a Long with the database identifier of the metadata item.
-   * @throws MetadataException
+   * @throws MetadataExtractorException
    *           if any problem is detected with the passed metadata.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
   Long storeMetadata(Connection conn, ArticleMetadataInfo mdinfo)
-      throws MetadataException, DbException {
+      throws MetadataExtractorException, DbException {
     final String DEBUG_HEADER = "storeMetadata(): ";
     if (log.isDebug3()) {
       log.debug3(DEBUG_HEADER + "Starting: auId = " + auId);
@@ -1188,7 +1218,7 @@ public class AuMetadataRecorder {
 
       // Validate the types of the metadata item and its parent.
       if (!validateMdItemTypeHierarchy(publicationType, mdinfo.articleType)) {
-	throw new MetadataException("Mismatch between articleType '"
+	throw new MetadataExtractorException("Mismatch between articleType '"
 	    + mdinfo.articleType + "' and publicationType '" + publicationType
 	    + "'", mdinfo);
       }
@@ -1248,14 +1278,14 @@ public class AuMetadataRecorder {
       log.debug3(DEBUG_HEADER + "volume = " + volume);
       
       // Get the publication to which this metadata belongs.
-      publicationSeq = mdxManager.findOrCreatePublication(conn, publisherSeq, 
+      publicationSeq = mdManager.findOrCreatePublication(conn, publisherSeq, 
           pIssn, eIssn, pIsbn, eIsbn, publicationType, 
 	  seriesTitle, proprietarySeriesId, publicationTitle, proprietaryId);
       log.debug3(DEBUG_HEADER + "publicationSeq = " + publicationSeq);
 
       // Get the identifier of the parent, which is the publication metadata
       // item.
-      parentSeq = mdxManager.findPublicationMetadataItem(conn, publicationSeq);
+      parentSeq = mdManager.findPublicationMetadataItem(conn, publicationSeq);
       log.debug3(DEBUG_HEADER + "parentSeq = " + parentSeq);
 
       // replace any unknown titles with this publication title
@@ -1277,12 +1307,12 @@ public class AuMetadataRecorder {
       // Replace any unknown series titles with this series title
       if (MetadataField.PUBLICATION_TYPE_BOOKSERIES.equals(publicationType)
           && !StringUtil.isNullString(seriesTitle)) {
-        Long seriesPublicationSeq = mdxManager.findBookSeries(conn,
-            publisherSeq, pIssn, eIssn, seriesTitle);
+        Long seriesPublicationSeq = mdManager.findBookSeries(conn, publisherSeq,
+            pIssn, eIssn, seriesTitle);
         log.debug3(DEBUG_HEADER 
             + "seriesPublicationSeq = " + seriesPublicationSeq);
         if (seriesPublicationSeq != null) {
-          Long seriesSeq = mdxManager.findPublicationMetadataItem(conn,
+          Long seriesSeq = mdManager.findPublicationMetadataItem(conn,
               seriesPublicationSeq);
           log.debug3(DEBUG_HEADER + "seriesMdSeq = " + seriesSeq);
           if (seriesSeq != null) {
@@ -1347,13 +1377,13 @@ public class AuMetadataRecorder {
    *          A Connection with the connection to the database
    * @param mdinfo
    *          An ArticleMetadataInfo providing the metadata.
-   * @throws MetadataException
+   * @throws MetadataExtractorException
    *           if any problem is detected with the passed metadata.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
   private void findOrCreatePublisher(Connection conn,
-      ArticleMetadataInfo mdinfo) throws MetadataException, DbException {
+      ArticleMetadataInfo mdinfo) throws MetadataExtractorException, DbException {
     final String DEBUG_HEADER = "findOrCreatePublisher(): ";
 
     // Get the publisher received in the metadata.
@@ -1392,7 +1422,7 @@ public class AuMetadataRecorder {
 	  log.error("auKey = " + auKey);
 	  log.error("auMdSeq = " + auMdSeq);
 	  log.error("auSeq = " + auSeq);
-	  throw new MetadataException("Null publisherSeq for auSeq = " + auSeq,
+	  throw new MetadataExtractorException("Null publisherSeq for auSeq = " + auSeq,
 	      mdinfo);
 	}
       } else {
@@ -1667,7 +1697,7 @@ public class AuMetadataRecorder {
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "mdItemType = " + mdItemType);
 
     // Find the metadata item type record sequence.
-    Long mdItemTypeSeq = mdxManager.findMetadataItemType(conn, mdItemType);
+    Long mdItemTypeSeq = mdManager.findMetadataItemType(conn, mdItemType);
     if (log.isDebug3())
       log.debug3(DEBUG_HEADER + "mdItemTypeSeq = " + mdItemTypeSeq);
 
@@ -1706,20 +1736,20 @@ public class AuMetadataRecorder {
     }
 
     // Create the new metadata item in the database.
-    mdItemSeq = mdxManager.addMdItem(conn, parentSeq, mdItemTypeSeq, auMdSeq,
+    mdItemSeq = mdManager.addMdItem(conn, parentSeq, mdItemTypeSeq, auMdSeq,
 	  date, coverage, fetchTime);
     if (log.isDebug3())
       log.debug3(DEBUG_HEADER + "new mdItemSeq = " + mdItemSeq);
 
-    mdxManager.addMdItemName(conn, mdItemSeq, itemTitle, PRIMARY_NAME_TYPE);
+    mdManager.addMdItemName(conn, mdItemSeq, itemTitle, PRIMARY_NAME_TYPE);
 
     // Get the volume received in the metadata.
     String volume = mdinfo.volume;
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "volume = " + volume);
 
     // Add the bibliographic data.
-    int addedCount =
-	addBibItem(conn, mdItemSeq, volume, issue, startPage, endPage, itemNo);
+    int addedCount = dbManager.addBibItem(conn, mdItemSeq, volume, issue,
+	startPage, endPage, itemNo);
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "addedCount = " + addedCount);
 
     // Add the item URLs.
@@ -1743,7 +1773,7 @@ public class AuMetadataRecorder {
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "added AUItem keywords.");
 
     // Add the item DOI.
-    mdxManager.addMdItemDoi(conn, mdItemSeq, doi);
+    mdManager.addMdItemDoi(conn, mdItemSeq, doi);
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "added AUItem DOI.");
 
     if (log.isDebug3())
@@ -1852,7 +1882,7 @@ public class AuMetadataRecorder {
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
-  Long findMdItem(Connection conn, Long mdItemTypeSeq, Long auMdSeq,
+  private Long findMdItem(Connection conn, Long mdItemTypeSeq, Long auMdSeq,
       String accessUrl) throws DbException {
     final String DEBUG_HEADER = "findMdItem(): ";
     Long mdItemSeq = null;
@@ -1881,56 +1911,6 @@ public class AuMetadataRecorder {
     return mdItemSeq;
   }
 
-  /**
-   * Adds to the database a bibliographic item.
-   * 
-   * @param conn
-   *          A Connection with the database connection to be used.
-   * @param mdItemSeq
-   *          A Long with the metadata item identifier.
-   * @param volume
-   *          A String with the bibliographic volume.
-   * @param issue
-   *          A String with the bibliographic issue.
-   * @param startPage
-   *          A String with the bibliographic starting page.
-   * @param endPage
-   *          A String with the bibliographic ending page.
-   * @param itemNo
-   *          A String with the bibliographic item number.
-   * @return an int with the number of database rows inserted.
-   * @throws DbException
-   *           if any problem occurred accessing the database.
-   */
-  private int addBibItem(Connection conn, Long mdItemSeq, String volume,
-      String issue, String startPage, String endPage, String itemNo)
-      throws DbException {
-    final String DEBUG_HEADER = "addBibItem(): ";
-    int addedCount = 0;
-
-    try {
-      PreparedStatement insertBibItem = dbManager.prepareStatement(conn,
-	  INSERT_BIB_ITEM_QUERY);
-
-      try {
-	insertBibItem.setLong(1, mdItemSeq);
-	insertBibItem.setString(2, volume);
-	insertBibItem.setString(3, issue);
-	insertBibItem.setString(4, startPage);
-	insertBibItem.setString(5, endPage);
-	insertBibItem.setString(6, itemNo);
-	addedCount = dbManager.executeUpdate(insertBibItem);
-      } finally {
-	MetadataDbManager.safeCloseStatement(insertBibItem);
-      }
-    } catch (SQLException sqle) {
-      throw new DbException("Cannot add bibliographic item", sqle);
-    }
-
-    log.debug3(DEBUG_HEADER + "addedCount = " + addedCount);
-    return addedCount;
-  }
-  
   /**
    * Provides an indication of whether the previous publisher is the same as the
    * current publisher.
@@ -2167,20 +2147,20 @@ public class AuMetadataRecorder {
    *          A Connection with the database connection to be used.
    * @param problems
    *          A List<String> with the recorded problems for the Archival Unit.
-   * @throws MetadataException
+   * @throws MetadataExtractorException
    *           if the reindexing task is cancelled.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
   private void fixUnknownPublishersAuData(Connection conn,
-      List<String> problems) throws MetadataException, DbException {
+      List<String> problems) throws MetadataExtractorException, DbException {
     final String DEBUG_HEADER = "fixUnknownPublishersAuData(): ";
     log.debug3(DEBUG_HEADER + "Starting...");
 
     // Loop through all the problems.
     for (String problem : problems) {
       if (task.isCancelled()) {
-	throw new MetadataException("Reindexing task cancelled");
+	throw new MetadataExtractorException("Reindexing task cancelled");
       }
 
       // Consider only problems created by an unknown publisher.
@@ -2201,13 +2181,14 @@ public class AuMetadataRecorder {
    *          A Connection with the database connection to be used.
    * @param unknownPublisherName
    *          A String with the name of the unknown publisher.
-   * @throws MetadataException
+   * @throws MetadataExtractorException
    *           if the reindexing task is cancelled.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
   private void fixUnknownPublisherAuData(Connection conn,
-      String unknownPublisherName) throws MetadataException, DbException {
+      String unknownPublisherName)
+	  throws MetadataExtractorException, DbException {
     final String DEBUG_HEADER = "fixUnknownPublisherAuData(): ";
     log.debug3(DEBUG_HEADER + "unknownPublisherName = " + unknownPublisherName);
 
@@ -2232,12 +2213,12 @@ public class AuMetadataRecorder {
       // publication.
       for (Long mdItemSeq : mdItemSeqs) {
 	if (task.isCancelled()) {
-	  throw new MetadataException("Reindexing task cancelled");
+	  throw new MetadataExtractorException("Reindexing task cancelled");
 	}
 
 	// Get allthe names of this metadata item.
 	Map<String, String> mdItemSeqNames =
-	    mdxManagerSql.getMdItemNames(conn, mdItemSeq);
+	    mdManager.getMdItemNames(conn, mdItemSeq);
 
 	// Map the identifier by each of its names.
 	for (String mdItemSeqName : mdItemSeqNames.keySet()) {
@@ -2249,7 +2230,7 @@ public class AuMetadataRecorder {
       // publisher.
       for (Long unknownPublicationSeq : unknownPublicationSeqs) {
 	if (task.isCancelled()) {
-	  throw new MetadataException("Reindexing task cancelled");
+	  throw new MetadataExtractorException("Reindexing task cancelled");
 	}
 
 	log.debug3(DEBUG_HEADER + "unknownPublicationSeq = "
@@ -2406,7 +2387,7 @@ public class AuMetadataRecorder {
 
       // Map the identifier by each of its names.
       Map<String, String> unknownMdItemSeqNames =
-	  mdxManagerSql.getMdItemNames(conn, unknownMdItemSeq);
+	  mdManager.getMdItemNames(conn, unknownMdItemSeq);
 
       // Loop through all of the names of the unknown publication metadata item.
       for (String unknownMdItemSeqName : unknownMdItemSeqNames.keySet()) {
@@ -2434,7 +2415,7 @@ public class AuMetadataRecorder {
 
     // Get the identifier of the unknown publication metadata item.
     Long unknownParentSeq =
-	mdxManager.findPublicationMetadataItem(conn, unknownPublicationSeq);
+	mdManager.findPublicationMetadataItem(conn, unknownPublicationSeq);
     log.debug3(DEBUG_HEADER + "unknownParentSeq = " + unknownParentSeq);
 
     // Merge the properties of the unknown publication metadata item into the
@@ -2671,28 +2652,28 @@ public class AuMetadataRecorder {
    *          A Connection with the database connection to be used.
    * @throws DbException
    *           if any problem occurred accessing the database.
-   * @throws MetadataException
+   * @throws MetadataExtractorException
    *           if the plugin could neither be found in the database nor added to
    *           it.
    */
   private void populateAuDbDependencies(Connection conn)
-      throws DbException, MetadataException {
+      throws DbException, MetadataExtractorException {
     final String DEBUG_HEADER = "populateAuDbDependencies(): ";
     // Check whether the plugin has not been located in the database.
     if (pluginSeq == null) {
       // Yes: Find the publishing platform or create it.
-      Long platformSeq = mdxManager.findOrCreatePlatform(conn, platform);
+      Long platformSeq = mdManager.findOrCreatePlatform(conn, platform);
       if (log.isDebug3())
 	log.debug3(DEBUG_HEADER + "platformSeq = " + platformSeq);
 
       if (platformSeq == null) {
         String message = "Cannot find or create platform '" + platform + "'";
         log.error(message);
-        throw new MetadataException(message);
+        throw new MetadataExtractorException(message);
       }
 
       // Find the plugin or create it.
-      pluginSeq = mdxManagerSql.findOrCreatePlugin(conn, pluginId, platformSeq,
+      pluginSeq = mdManager.findOrCreatePlugin(conn, pluginId, platformSeq,
 	  isBulkContent);
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginSeq = " + pluginSeq);
 
@@ -2701,14 +2682,14 @@ public class AuMetadataRecorder {
   	    + "' for platform '" + platform + "'";
   	log.error(message);
   	log.error("platformSeq = " + platformSeq);
-  	throw new MetadataException(message);
+  	throw new MetadataExtractorException(message);
       }
     }
 
     // Check whether the Archival Unit has not been located in the database.
     if (auSeq == null) {
       // Yes: Find it or create it.
-      auSeq = mdxManager.findOrCreateAu(conn, pluginSeq, auKey);
+      auSeq = mdManager.findOrCreateAu(conn, pluginSeq, auKey);
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auSeq = " + auSeq);
 
       if (auSeq == null) {
@@ -2716,7 +2697,7 @@ public class AuMetadataRecorder {
   	    + pluginId + "'";
   	log.error(message);
   	log.error("pluginSeq = " + pluginSeq);
-  	throw new MetadataException(message);
+  	throw new MetadataExtractorException(message);
       }
     }
   }
@@ -2733,12 +2714,12 @@ public class AuMetadataRecorder {
    *          A String with the provider name.
    * @throws DbException
    *           if any problem occurred accessing the database.
-   * @throws MetadataException
+   * @throws MetadataExtractorException
    *           if the current Archival Unit metadata could neither be found in
    *           the database nor added to it.
    */
   private void addAuMd(Connection conn, String providerLid, String providerName)
-      throws DbException, MetadataException {
+      throws DbException, MetadataExtractorException {
     final String DEBUG_HEADER = "addAuMd(): ";
     long creationTime = 0;
 
@@ -2766,7 +2747,7 @@ public class AuMetadataRecorder {
       log.debug3(DEBUG_HEADER + "providerSeq = " + providerSeq);
 
     // Add to the database the new Archival Unit metadata extraction data.
-    auMdSeq = mdxManagerSql.addAuMd(conn, auSeq, pluginVersion,
+    auMdSeq = mdManager.addAuMd(conn, auSeq, pluginVersion,
 	NEVER_EXTRACTED_EXTRACTION_TIME, creationTime, providerSeq);
     log.debug3(DEBUG_HEADER + "new auSeq = " + auMdSeq);
 
@@ -2774,7 +2755,7 @@ public class AuMetadataRecorder {
       String message = "Cannot create AuMd for '" + auKey + "' and plugin '"
 	  + pluginId + "'";
       log.error(message);
-      throw new MetadataException(message);
+      throw new MetadataExtractorException(message);
     }
   }
 
@@ -2786,12 +2767,12 @@ public class AuMetadataRecorder {
    *          A Connection with the database connection to be used.
    * @throws DbException
    *           if any problem occurred accessing the database.
-   * @throws MetadataException
+   * @throws MetadataExtractorException
    *           if some element could neither be found in the database nor added
    *           to it.
    */
-  public void recordMetadataExtraction(Connection conn)
-      throws DbException, MetadataException {
+  void recordMetadataExtraction(Connection conn)
+      throws DbException, MetadataExtractorException {
     final String DEBUG_HEADER = "recordMetadataExtraction(): ";
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Invoked.");
 
