@@ -1016,7 +1016,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
       // Check that nArticle articles exist for each of nTitles
       assertEquals(nTitles*nArticles, 
                    countAuMetadataItems(conn) - initialArticleCount);
-    } catch (MetadataExtractorException me) {
+    } catch (MetadataIndexingException me) {
       // Expected.
     } finally {
       MetadataDbManager.safeRollbackAndClose(conn);
@@ -1500,7 +1500,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
     try {
       amr.validateMetadata(ami, mandatoryFields);
       fail();
-    } catch (MetadataExtractorException me) {
+    } catch (MetadataIndexingException me) {
       // Expected exception.
     }
 

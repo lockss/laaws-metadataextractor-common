@@ -279,8 +279,8 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
             ColumnDescriptor.TYPE_STRING,
             sw.toString()));
         // show metadata info for a MedataException
-        if (taskException instanceof MetadataExtractorException) {
-          ArticleMetadataInfo info = ((MetadataExtractorException)taskException)
+        if (taskException instanceof MetadataIndexingException) {
+          ArticleMetadataInfo info = ((MetadataIndexingException)taskException)
               .getArticleMetadataInfo();
           if (info != null) {
             res.add(new StatusTable.SummaryInfo(

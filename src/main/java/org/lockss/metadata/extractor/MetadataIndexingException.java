@@ -40,27 +40,27 @@ package org.lockss.metadata.extractor;
 import org.lockss.metadata.extractor.ArticleMetadataBuffer.ArticleMetadataInfo;
 
 @SuppressWarnings("serial")
-public class MetadataExtractorException extends Exception {
+public class MetadataIndexingException extends Exception {
 
   private ArticleMetadataInfo mdinfo;
 
-  public MetadataExtractorException() {
+  public MetadataIndexingException() {
     super();
   }
 
-  public MetadataExtractorException(String message) {
+  public MetadataIndexingException(String message) {
     super(message);
   }
 
-  public MetadataExtractorException(Throwable cause) {
+  public MetadataIndexingException(Throwable cause) {
     super(cause);
   }
 
-  public MetadataExtractorException(String message, Throwable cause) {
+  public MetadataIndexingException(String message, Throwable cause) {
     super(message, cause);
   }
 
-  public MetadataExtractorException(String message,
+  public MetadataIndexingException(String message,
       ArticleMetadataInfo mdinfo) {
     super(message);
     this.mdinfo = mdinfo;

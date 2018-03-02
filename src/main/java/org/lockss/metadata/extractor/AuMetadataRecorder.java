@@ -334,14 +334,14 @@ public class AuMetadataRecorder {
    *          A Connection with the database connection to be used.
    * @param mditr
    *          An Iterator<ArticleMetadataInfo> with the metadata.
-   * @throws MetadataExtractorException
+   * @throws MetadataIndexingException
    *           if any problem is detected with the passed metadata or the task
    *           is cancelled.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
   void recordMetadata(Connection conn, Iterator<ArticleMetadataInfo> mditr)
-      throws MetadataExtractorException, DbException {
+      throws MetadataIndexingException, DbException {
     final String DEBUG_HEADER = "recordMetadata(): ";
 
     // Get the mandatory metadata fields.
@@ -352,7 +352,7 @@ public class AuMetadataRecorder {
     // Loop through the metadata for each item.
     while (mditr.hasNext()) {
       if (task.isCancelled()) {
-	throw new MetadataExtractorException("Reindexing task cancelled");
+	throw new MetadataIndexingException("Reindexing task cancelled");
       }
 
       task.pokeWDog();
@@ -407,13 +407,13 @@ public class AuMetadataRecorder {
    * @param mditr
    *          An Iterator<ArticleMetadataInfo> with the metadata.
    * @return a Long with the database identifier of the metadata item.
-   * @throws MetadataExtractorException
+   * @throws MetadataIndexingException
    *           if any problem is detected with the passed metadata.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
   Long recordMetadataItem(Connection conn, List<String> mandatoryFields,
-      Iterator<ArticleMetadataInfo> mditr) throws MetadataExtractorException,
+      Iterator<ArticleMetadataInfo> mditr) throws MetadataIndexingException,
       DbException {
     final String DEBUG_HEADER = "recordMetadataItem(): ";
     if (log.isDebug2())
@@ -460,7 +460,7 @@ public class AuMetadataRecorder {
    *           if the validation fails.
    */
   void validateMetadata(ArticleMetadataInfo mdinfo,
-      List<String> mandatoryFields) throws MetadataExtractorException {
+      List<String> mandatoryFields) throws MetadataIndexingException {
     if (mandatoryFields == null || mandatoryFields.size() == 0) {
       return;
     }
@@ -469,14 +469,14 @@ public class AuMetadataRecorder {
       switch (mandatoryField) {
       case "publisher":
 	if (StringUtil.isNullString(mdinfo.publisher)) {
-	  throw new MetadataExtractorException("Missing mandatory metadata field '"
+	  throw new MetadataIndexingException("Missing mandatory metadata field '"
 	      + mandatoryField + "' in " + mdinfo.toString(), mdinfo);
 	}
 	break;
 
       case "provider":
 	if (StringUtil.isNullString(mdinfo.provider)) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -484,7 +484,7 @@ public class AuMetadataRecorder {
 
       case "publicationTitle":
 	if (StringUtil.isNullString(mdinfo.publicationTitle)) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -492,7 +492,7 @@ public class AuMetadataRecorder {
 
       case "publicationType":
 	if (StringUtil.isNullString(mdinfo.publicationType)) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -500,7 +500,7 @@ public class AuMetadataRecorder {
 
       case "articleTitle":
 	if (StringUtil.isNullString(mdinfo.articleTitle)) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -508,7 +508,7 @@ public class AuMetadataRecorder {
 
       case "articleType":
 	if (StringUtil.isNullString(mdinfo.articleType)) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -516,7 +516,7 @@ public class AuMetadataRecorder {
 
       case "accessUrl":
 	if (StringUtil.isNullString(mdinfo.accessUrl)) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -524,7 +524,7 @@ public class AuMetadataRecorder {
 
       case "isbn":
 	if (StringUtil.isNullString(mdinfo.isbn)) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -532,7 +532,7 @@ public class AuMetadataRecorder {
 
       case "eisbn":
 	if (StringUtil.isNullString(mdinfo.eisbn)) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -540,7 +540,7 @@ public class AuMetadataRecorder {
 
       case "issn":
 	if (StringUtil.isNullString(mdinfo.issn)) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -548,7 +548,7 @@ public class AuMetadataRecorder {
 
       case "eissn":
 	if (StringUtil.isNullString(mdinfo.eissn)) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -556,7 +556,7 @@ public class AuMetadataRecorder {
 
       case "doi":
 	if (StringUtil.isNullString(mdinfo.doi)) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -564,7 +564,7 @@ public class AuMetadataRecorder {
 
       case "pubDate":
 	if (StringUtil.isNullString(mdinfo.pubDate)) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -572,7 +572,7 @@ public class AuMetadataRecorder {
 
       case "pubYear":
 	if (StringUtil.isNullString(mdinfo.pubYear)) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -580,7 +580,7 @@ public class AuMetadataRecorder {
 
       case "volume":
 	if (StringUtil.isNullString(mdinfo.volume)) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -588,7 +588,7 @@ public class AuMetadataRecorder {
 
       case "issue":
 	if (StringUtil.isNullString(mdinfo.issue)) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -596,7 +596,7 @@ public class AuMetadataRecorder {
 
       case "startPage":
 	if (StringUtil.isNullString(mdinfo.startPage)) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -604,7 +604,7 @@ public class AuMetadataRecorder {
 
       case "endPage":
 	if (StringUtil.isNullString(mdinfo.endPage)) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -612,7 +612,7 @@ public class AuMetadataRecorder {
 
       case "seriesTitle":
 	if (StringUtil.isNullString(mdinfo.seriesTitle)) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -620,7 +620,7 @@ public class AuMetadataRecorder {
 
       case "authors":
 	if (mdinfo.authors == null || mdinfo.authors.size() == 0) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -628,7 +628,7 @@ public class AuMetadataRecorder {
 
       case "keywords":
 	if (mdinfo.keywords == null || mdinfo.keywords.size() == 0) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -637,7 +637,7 @@ public class AuMetadataRecorder {
       case "featuredUrlMap":
 	if (mdinfo.featuredUrlMap == null
 	|| mdinfo.featuredUrlMap.size() == 0) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -645,7 +645,7 @@ public class AuMetadataRecorder {
 
       case "coverage":
 	if (StringUtil.isNullString(mdinfo.coverage)) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -653,7 +653,7 @@ public class AuMetadataRecorder {
 
       case "itemNumber":
 	if (StringUtil.isNullString(mdinfo.itemNumber)) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -661,7 +661,7 @@ public class AuMetadataRecorder {
 
       case "proprietaryIdentifier":
 	if (StringUtil.isNullString(mdinfo.proprietaryIdentifier)) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -669,7 +669,7 @@ public class AuMetadataRecorder {
 
       case "proprietarySeriesIdentifier":
 	if (StringUtil.isNullString(mdinfo.proprietarySeriesIdentifier)) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -677,7 +677,7 @@ public class AuMetadataRecorder {
 
       case "fetchTime":
 	if (StringUtil.isNullString(mdinfo.fetchTime)) {
-	  throw new MetadataExtractorException(
+	  throw new MetadataIndexingException(
 	      "Missing mandatory metadata field '" + mandatoryField + "' in "
 		  + mdinfo.toString(), mdinfo);
 	}
@@ -1179,13 +1179,13 @@ public class AuMetadataRecorder {
    * @param mdinfo
    *          An ArticleMetadataInfo providing the metadata.
    * @return a Long with the database identifier of the metadata item.
-   * @throws MetadataExtractorException
+   * @throws MetadataIndexingException
    *           if any problem is detected with the passed metadata.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
   Long storeMetadata(Connection conn, ArticleMetadataInfo mdinfo)
-      throws MetadataExtractorException, DbException {
+      throws MetadataIndexingException, DbException {
     final String DEBUG_HEADER = "storeMetadata(): ";
     if (log.isDebug3()) {
       log.debug3(DEBUG_HEADER + "Starting: auId = " + auId);
@@ -1218,7 +1218,7 @@ public class AuMetadataRecorder {
 
       // Validate the types of the metadata item and its parent.
       if (!validateMdItemTypeHierarchy(publicationType, mdinfo.articleType)) {
-	throw new MetadataExtractorException("Mismatch between articleType '"
+	throw new MetadataIndexingException("Mismatch between articleType '"
 	    + mdinfo.articleType + "' and publicationType '" + publicationType
 	    + "'", mdinfo);
       }
@@ -1377,13 +1377,13 @@ public class AuMetadataRecorder {
    *          A Connection with the connection to the database
    * @param mdinfo
    *          An ArticleMetadataInfo providing the metadata.
-   * @throws MetadataExtractorException
+   * @throws MetadataIndexingException
    *           if any problem is detected with the passed metadata.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
   private void findOrCreatePublisher(Connection conn,
-      ArticleMetadataInfo mdinfo) throws MetadataExtractorException, DbException {
+      ArticleMetadataInfo mdinfo) throws MetadataIndexingException, DbException {
     final String DEBUG_HEADER = "findOrCreatePublisher(): ";
 
     // Get the publisher received in the metadata.
@@ -1422,7 +1422,7 @@ public class AuMetadataRecorder {
 	  log.error("auKey = " + auKey);
 	  log.error("auMdSeq = " + auMdSeq);
 	  log.error("auSeq = " + auSeq);
-	  throw new MetadataExtractorException("Null publisherSeq for auSeq = " + auSeq,
+	  throw new MetadataIndexingException("Null publisherSeq for auSeq = " + auSeq,
 	      mdinfo);
 	}
       } else {
@@ -2147,20 +2147,20 @@ public class AuMetadataRecorder {
    *          A Connection with the database connection to be used.
    * @param problems
    *          A List<String> with the recorded problems for the Archival Unit.
-   * @throws MetadataExtractorException
+   * @throws MetadataIndexingException
    *           if the reindexing task is cancelled.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
   private void fixUnknownPublishersAuData(Connection conn,
-      List<String> problems) throws MetadataExtractorException, DbException {
+      List<String> problems) throws MetadataIndexingException, DbException {
     final String DEBUG_HEADER = "fixUnknownPublishersAuData(): ";
     log.debug3(DEBUG_HEADER + "Starting...");
 
     // Loop through all the problems.
     for (String problem : problems) {
       if (task.isCancelled()) {
-	throw new MetadataExtractorException("Reindexing task cancelled");
+	throw new MetadataIndexingException("Reindexing task cancelled");
       }
 
       // Consider only problems created by an unknown publisher.
@@ -2181,14 +2181,14 @@ public class AuMetadataRecorder {
    *          A Connection with the database connection to be used.
    * @param unknownPublisherName
    *          A String with the name of the unknown publisher.
-   * @throws MetadataExtractorException
+   * @throws MetadataIndexingException
    *           if the reindexing task is cancelled.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
   private void fixUnknownPublisherAuData(Connection conn,
       String unknownPublisherName)
-	  throws MetadataExtractorException, DbException {
+	  throws MetadataIndexingException, DbException {
     final String DEBUG_HEADER = "fixUnknownPublisherAuData(): ";
     log.debug3(DEBUG_HEADER + "unknownPublisherName = " + unknownPublisherName);
 
@@ -2213,7 +2213,7 @@ public class AuMetadataRecorder {
       // publication.
       for (Long mdItemSeq : mdItemSeqs) {
 	if (task.isCancelled()) {
-	  throw new MetadataExtractorException("Reindexing task cancelled");
+	  throw new MetadataIndexingException("Reindexing task cancelled");
 	}
 
 	// Get allthe names of this metadata item.
@@ -2230,7 +2230,7 @@ public class AuMetadataRecorder {
       // publisher.
       for (Long unknownPublicationSeq : unknownPublicationSeqs) {
 	if (task.isCancelled()) {
-	  throw new MetadataExtractorException("Reindexing task cancelled");
+	  throw new MetadataIndexingException("Reindexing task cancelled");
 	}
 
 	log.debug3(DEBUG_HEADER + "unknownPublicationSeq = "
@@ -2652,12 +2652,12 @@ public class AuMetadataRecorder {
    *          A Connection with the database connection to be used.
    * @throws DbException
    *           if any problem occurred accessing the database.
-   * @throws MetadataExtractorException
+   * @throws MetadataIndexingException
    *           if the plugin could neither be found in the database nor added to
    *           it.
    */
   private void populateAuDbDependencies(Connection conn)
-      throws DbException, MetadataExtractorException {
+      throws DbException, MetadataIndexingException {
     final String DEBUG_HEADER = "populateAuDbDependencies(): ";
     // Check whether the plugin has not been located in the database.
     if (pluginSeq == null) {
@@ -2669,7 +2669,7 @@ public class AuMetadataRecorder {
       if (platformSeq == null) {
         String message = "Cannot find or create platform '" + platform + "'";
         log.error(message);
-        throw new MetadataExtractorException(message);
+        throw new MetadataIndexingException(message);
       }
 
       // Find the plugin or create it.
@@ -2682,7 +2682,7 @@ public class AuMetadataRecorder {
   	    + "' for platform '" + platform + "'";
   	log.error(message);
   	log.error("platformSeq = " + platformSeq);
-  	throw new MetadataExtractorException(message);
+  	throw new MetadataIndexingException(message);
       }
     }
 
@@ -2697,7 +2697,7 @@ public class AuMetadataRecorder {
   	    + pluginId + "'";
   	log.error(message);
   	log.error("pluginSeq = " + pluginSeq);
-  	throw new MetadataExtractorException(message);
+  	throw new MetadataIndexingException(message);
       }
     }
   }
@@ -2714,12 +2714,12 @@ public class AuMetadataRecorder {
    *          A String with the provider name.
    * @throws DbException
    *           if any problem occurred accessing the database.
-   * @throws MetadataExtractorException
+   * @throws MetadataIndexingException
    *           if the current Archival Unit metadata could neither be found in
    *           the database nor added to it.
    */
   private void addAuMd(Connection conn, String providerLid, String providerName)
-      throws DbException, MetadataExtractorException {
+      throws DbException, MetadataIndexingException {
     final String DEBUG_HEADER = "addAuMd(): ";
     long creationTime = 0;
 
@@ -2755,7 +2755,7 @@ public class AuMetadataRecorder {
       String message = "Cannot create AuMd for '" + auKey + "' and plugin '"
 	  + pluginId + "'";
       log.error(message);
-      throw new MetadataExtractorException(message);
+      throw new MetadataIndexingException(message);
     }
   }
 
@@ -2767,12 +2767,12 @@ public class AuMetadataRecorder {
    *          A Connection with the database connection to be used.
    * @throws DbException
    *           if any problem occurred accessing the database.
-   * @throws MetadataExtractorException
+   * @throws MetadataIndexingException
    *           if some element could neither be found in the database nor added
    *           to it.
    */
   void recordMetadataExtraction(Connection conn)
-      throws DbException, MetadataExtractorException {
+      throws DbException, MetadataIndexingException {
     final String DEBUG_HEADER = "recordMetadataExtraction(): ";
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Invoked.");
 

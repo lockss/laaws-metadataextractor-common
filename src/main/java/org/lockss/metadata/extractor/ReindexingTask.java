@@ -863,7 +863,7 @@ public class ReindexingTask extends StepTask {
             }
 
             break;
-          } catch (MetadataExtractorException me) {
+          } catch (MetadataIndexingException me) {
             e = me;
             log.warning("Error updating metadata at FINISH for " + status
                 + " -- NOT rescheduling", e);
