@@ -383,6 +383,15 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 	+ "MetadataExtractorManager service successfully started");
   }
 
+  /** Start the starter thread, which waits for AUs to be started,
+   * registers AuEvent handler and performs initial scan of AUs
+   */
+  void startStarter() {
+    MetadataIndexingStarter starter =
+	new MetadataIndexingStarter(dbManager, this, pluginMgr);
+    new Thread(starter).start();
+  }
+
   /**
    * Handles new configuration.
    * 
@@ -480,6 +489,9 @@ public class MetadataExtractorManager extends BaseLockssManager implements
         // Start reindexing
 	  startReindexing();
 	} else {
+	  // start first-time startup thread (XXX needs to be periodic?)
+	  // This is used also in testing.
+	  startStarter();
 	  everEnabled = true;
 	}
 	reindexingEnabled = enable;

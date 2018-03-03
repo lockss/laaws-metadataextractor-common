@@ -48,7 +48,6 @@ import org.lockss.extractor.MetadataField;
 import org.lockss.extractor.MetadataTarget;
 import org.lockss.metadata.MetadataDbManager;
 import org.lockss.metadata.MetadataManager;
-import org.lockss.metadata.MetadataManagerSql;
 import org.lockss.metadata.extractor.MetadataExtractorManager.PrioritizedAuId;
 import org.lockss.metadata.extractor.job.JobDbManager;
 import org.lockss.metadata.extractor.job.JobManager;
