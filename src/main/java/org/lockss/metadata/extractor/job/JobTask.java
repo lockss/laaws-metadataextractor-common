@@ -40,7 +40,7 @@ import org.lockss.scheduler.StepTask;
 import org.lockss.util.Logger;
 
 /**
- * Processor for a job processing the metadata of an Archival Unit..
+ * Processor for a job processing the metadata of an Archival Unit.
  * 
  * @author Fernando García-Loygorri
  */
@@ -60,8 +60,12 @@ public class JobTask implements Runnable {
   /**
    * Constructor.
    * 
-   * @param jobManagerSql
-   *          A JobManagerSql with the Job SQL code executor.
+   * @param dbManager
+   *          A JobDbManager with the Job SQL code executor.
+   * @param mdxManager
+   *          A MetadataExtractorManager with the metadata extractor manager.
+   * @param jobManager
+   *          A JobManager with the Job manager.
    */
   public JobTask(JobDbManager dbManager, MetadataExtractorManager mdxManager,
       JobManager jobManager) {

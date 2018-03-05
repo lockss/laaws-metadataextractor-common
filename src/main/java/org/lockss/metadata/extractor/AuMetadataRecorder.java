@@ -276,8 +276,8 @@ public class AuMetadataRecorder {
    * 
    * @param task
    *          A ReindexingTaskwith the calling task.
-   * @param mdManager
-   *          A MetadataManager with the metadata manager.
+   * @param mdxManager
+   *          A MetadataManager with the metadata extractor manager.
    * @param au
    *          An ArchivalUnit with the archival unit.
    */

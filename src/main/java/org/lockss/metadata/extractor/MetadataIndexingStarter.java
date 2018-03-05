@@ -66,8 +66,8 @@ public class MetadataIndexingStarter extends LockssRunnable {
    * 
    * @param dbManager
    *          A DbManager with the database manager.
-   * @param mdManager
-   *          A MetadataExtractorManager with the metadata manager.
+   * @param mdxManager
+   *          A MetadataExtractorManager with the metadata extractor manager.
    * @param pluginManager
    *          A PluginManager with the plugin manager.
    */

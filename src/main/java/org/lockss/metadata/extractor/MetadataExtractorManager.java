@@ -1582,6 +1582,8 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    *          An ArchivalUnit with the Archival Unit.
    * @param status
    *          A ReindexingStatus with the status of the reindexing process.
+   * @param exception
+   *          An Exception with any exception that occurred.
    */
   protected void notifyFinishReindexingAu(ArchivalUnit au,
       ReindexingStatus status, Exception exception) {
@@ -1613,13 +1615,15 @@ public class MetadataExtractorManager extends BaseLockssManager implements
   }
 
   /**
-   * Notifies listeners that the metadata of an AU is has been deleted.
+   * Notifies listeners that the metadata of an AU has been deleted.
    * 
    * @param au
    *          An ArchivalUnit with the Archival Unit.
    * @param status
    *          A ReindexingStatus with the status of the metadata removal
    *          process.
+   * @param exception
+   *          An Exception with any exception that occurred.
    */
   protected void notifyFinishAuMetadataRemoval(ArchivalUnit au,
       ReindexingStatus status, Exception exception) {
@@ -2681,8 +2685,8 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * @param limit
    *          An Integer with the maximum number of AU metadata items to be
    *          returned.
-   * @return a List<ItemMetadata> with the requested metadata of the Archival
-   *         Unit.
+   * @return a {@code List<ItemMetadata>} with the requested metadata of the
+   *         Archival Unit.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */

@@ -128,8 +128,10 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
 		new StatusTable.SortRule(SORT_KEY2, false));
 
   /**
-   * Create new instance for metadata manager
-   * @param metadataMgr the metadata manager
+   * Creates new instance for a metadata extractor manager.
+   * 
+   * @param mdxMgr
+   *          A MetadataExtractorManager with the metadata extractor manager.
    */
   public MetadataManagerStatusAccessor(MetadataExtractorManager mdxMgr) {
     this.mdxMgr = mdxMgr;

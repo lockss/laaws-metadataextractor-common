@@ -414,6 +414,7 @@ public class ReindexingTask extends StepTask {
    * Temporary
    * 
    * @param evt
+   *          A Schedule.EventType with the event type.
    */
   protected void handleEvent(Schedule.EventType evt) {
     callback.taskEvent(this, evt);

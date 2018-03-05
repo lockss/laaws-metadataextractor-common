@@ -301,7 +301,7 @@ public class JobManager extends BaseLockssDaemonManager implements
    *          An Integer with the index of the page to be returned.
    * @param limit
    *          An Integer with the maximum number of jobs to be returned.
-   * @return a List<Job> with the existing jobs.
+   * @return a {@code List<Job>} with the existing jobs.
    * @throws Exception
    *           if there are problems getting the jobs.
    */
@@ -616,6 +616,12 @@ public class JobManager extends BaseLockssDaemonManager implements
    * @param auId
    *          A String with the identifier of the Archival Unit whose metadata
    *          is being removed.
+   * @param status
+   *          A ReindexingStatus with the status of the metadata removal
+   *          operation.
+   * @param exception
+   *          An Exception with any exception that occurred during metadata
+   *          removal.
    */
   public void handleDeleteAuJobFinishEvent(String auId, ReindexingStatus status,
       Exception exception) {
