@@ -822,7 +822,11 @@ public class JobManager extends BaseLockssDaemonManager implements
    *           if any problem occurred accessing the database.
    */
   public long getNotStartedReindexingJobsCount() throws DbException {
-    return jobManagerSql.getNotStartedReindexingJobsCount();
+    if (jobManagerEnabled) {
+      return jobManagerSql.getNotStartedReindexingJobsCount();
+    }
+
+    return 0;
   }
 
   /**
@@ -837,6 +841,10 @@ public class JobManager extends BaseLockssDaemonManager implements
    */
   public List<Map<String, Object>> getNotStartedReindexingJobs(int maxJobCount)
       throws DbException {
-    return jobManagerSql.getNotStartedReindexingJobs(maxJobCount);
+    if (jobManagerEnabled) {
+      return jobManagerSql.getNotStartedReindexingJobs(maxJobCount);
+    }
+
+    return new ArrayList<Map<String, Object>>();
   }
 }
