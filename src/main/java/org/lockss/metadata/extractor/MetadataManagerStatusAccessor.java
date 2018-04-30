@@ -317,7 +317,7 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
     List<StatusTable.SummaryInfo> res =
 	new ArrayList<StatusTable.SummaryInfo>();
     long activeOps = mdxMgr.getActiveReindexingCount();
-    long pendingOps = mdxMgr.getPendingAusCount() - activeOps;
+    long pendingOps = mdxMgr.getPendingAusCount();
     long successfulOps = mdxMgr.getSuccessfulReindexingCount();
     long failedOps = mdxMgr.getFailedReindexingCount();
     long articleCount = mdxMgr.getArticleCount();

@@ -34,6 +34,7 @@ package org.lockss.metadata.extractor.job;
 import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.lockss.app.BaseLockssDaemonManager;
@@ -811,5 +812,31 @@ public class JobManager extends BaseLockssDaemonManager implements
    */
   long getSleepDelaySeconds() {
     return sleepDelaySeconds;
+  }
+
+  /**
+   * Provides the count of reindexing jobs not started yet.
+   * 
+   * @return a long with the count of jobs not started yet.
+   * @throws DbException
+   *           if any problem occurred accessing the database.
+   */
+  public long getNotStartedReindexingJobsCount() throws DbException {
+    return jobManagerSql.getNotStartedReindexingJobsCount();
+  }
+
+  /**
+   * Provides data for reindexing jobs not started yet.
+   * 
+   * @param maxJobCount
+   *          An int with the maximum number of jobs to return.
+   * @return a List<Map<String, Object>> with the data for the jobs not started
+   *         yet.
+   * @throws DbException
+   *           if any problem occurred accessing the database.
+   */
+  public List<Map<String, Object>> getNotStartedReindexingJobs(int maxJobCount)
+      throws DbException {
+    return jobManagerSql.getNotStartedReindexingJobs(maxJobCount);
   }
 }

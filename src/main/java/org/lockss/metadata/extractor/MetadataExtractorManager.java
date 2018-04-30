@@ -65,6 +65,7 @@ import org.lockss.metadata.MetadataDbManager;
 import org.lockss.metadata.MetadataManager;
 import org.lockss.metadata.extractor.ArticleMetadataBuffer.ArticleMetadataInfo;
 import org.lockss.metadata.extractor.job.JobManager;
+import org.lockss.metadata.extractor.job.SqlConstants;
 import org.lockss.plugin.ArchivalUnit;
 import org.lockss.plugin.AuUtil;
 import org.lockss.plugin.Plugin;
@@ -1088,23 +1089,59 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    */
   private List<PrioritizedAuId> getPendingReindexingAus(int maxAuIds) {
     final String DEBUG_HEADER = "getPendingReindexingAus(): ";
-    Connection conn = null;
+    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "maxAuIds = " + maxAuIds);
+
     List<PrioritizedAuId> auidsToReindex = new ArrayList<PrioritizedAuId>();
+
     if (pluginMgr != null) {
       try {
-	conn = dbManager.getConnection();
+	List<Map<String, Object>> notStartedJobs =
+	    jobMgr.getNotStartedReindexingJobs(maxAuIds);
+	if (log.isDebug3()) log.debug3(DEBUG_HEADER + "notStartedJobs.size() = "
+	    + notStartedJobs.size());
 
-	auidsToReindex = mdxManagerSql.getPrioritizedAuIdsToReindex(conn,
-	    maxAuIds, prioritizeIndexingNewAus);
-	MetadataDbManager.commitOrRollback(conn, log);
+	for (Map<String, Object> job : notStartedJobs) {
+	  PrioritizedAuId auToReindex = new PrioritizedAuId();
+
+	  String pluginId = (String)job.get(SqlConstants.PLUGIN_ID_COLUMN);
+	  if (log.isDebug3())
+	    log.debug3(DEBUG_HEADER + "pluginId = " + pluginId);
+
+	  String auKey = (String)job.get(SqlConstants.AU_KEY_COLUMN);
+	  if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auKey = " + auKey);
+
+	  String auId = PluginManager.generateAuId(pluginId, auKey);
+	  if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auId = " + auId);
+	  auToReindex.auId = auId;
+
+	  long priority = (Long)job.get(SqlConstants.PRIORITY_COLUMN);
+	  if (log.isDebug3())
+	    log.debug3(DEBUG_HEADER + "priority = " + priority);
+	  auToReindex.priority = priority;
+
+	  auToReindex.isNew = false;
+
+	  String description = (String)job.get(SqlConstants.DESCRIPTION_COLUMN);
+	  if (log.isDebug3())
+	    log.debug3(DEBUG_HEADER + "description = " + description);
+
+	  boolean needFullReindex =
+	      "Full Metadata Extraction".equals(description);
+	  if (log.isDebug3())
+	    log.debug3(DEBUG_HEADER + "needFullReindex = " + needFullReindex);
+	  auToReindex.needFullReindex = needFullReindex;
+
+	  auidsToReindex.add(auToReindex);
+	  if (log.isDebug3()) log.debug3(DEBUG_HEADER + "Added auId = " + auId
+	      + " to reindex list");
+	}
       } catch (DbException dbe) {
 	log.error("Cannot get pending AU ids for reindexing", dbe);
-      } finally {
-	MetadataDbManager.safeRollbackAndClose(conn);
       }
     }
 
-    log.debug3(DEBUG_HEADER + "count = " + auidsToReindex.size());
+    if (log.isDebug2()) log.debug2(DEBUG_HEADER
+	+ "auidsToReindex.size() = " + auidsToReindex.size());
     return auidsToReindex;
   }
   
@@ -1150,14 +1187,18 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     return (metadataProviderCount < 0) ? 0 : metadataProviderCount;
   }
 
-  // The number of AUs pending to be reindexed.
   /**
    * Provides the number of AUs pending to be reindexed.
    * 
    * @return a long with the number of AUs pending to be reindexed.
    */
   long getPendingAusCount() {
-    return pendingAusCount;
+    try {
+      return jobMgr.getNotStartedReindexingJobsCount();
+    } catch (DbException dbe) {
+      log.error("getPendingAusCount", dbe);
+    }
+    return 0;
   }
 
   /**
@@ -1181,7 +1222,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * @return a boolean with the indexing enabled state of this manager.
    */
   boolean isIndexingEnabled() {
-    return reindexingEnabled;
+    return isOnDemandMetadataExtractionOnly();
   }
 
   /**
@@ -2582,7 +2623,14 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 	+ "Creating the reindexing task for AU: " + au.getName());
 
     ReindexingTask task = new ReindexingTask(au, getMetadataExtractor(au));
+    task.setNewAu(false);
     task.setFullReindex(needFullReindex);
+
+    activeReindexingTasks.put(au.getAuId(), task);
+
+    // Add the reindexing task to the history; limit history list
+    // size.
+    addToIndexingTaskHistory(task);
 
     log.debug(DEBUG_HEADER + "Running the reindexing task for AU: "
 	+ au.getName());

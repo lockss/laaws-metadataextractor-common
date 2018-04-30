@@ -228,6 +228,26 @@ public class JobManagerSql {
       + ", " + STATUS_MESSAGE_COLUMN + " = ?"
       + " where " + JOB_SEQ_COLUMN + " = ?";
 
+  // Query to find the count of reindexing jobs not started yet.
+  private static final String COUNT_CREATED_REINDEXING_JOBS_QUERY = "select"
+      + " count(*)"
+      + " from " + JOB_TABLE
+      + " where " + JOB_TYPE_SEQ_COLUMN + " != ? "
+      + " and " + JOB_STATUS_SEQ_COLUMN + " = ?";
+
+  // Query to find the reindexing jobs not started yet.
+  private static final String CREATED_REINDEXING_JOBS_QUERY = "select "
+      + JOB_SEQ_COLUMN
+      + ", " + DESCRIPTION_COLUMN
+      + ", " + PLUGIN_ID_COLUMN
+      + ", " + AU_KEY_COLUMN
+      + ", " + PRIORITY_COLUMN
+      + " from " + JOB_TABLE
+      + " where " + JOB_TYPE_SEQ_COLUMN + " != ?"
+      + " and " + JOB_STATUS_SEQ_COLUMN + " = ?"
+      + " order by " + PRIORITY_COLUMN
+      + ", " + JOB_SEQ_COLUMN;
+
   private final JobDbManager dbManager;
   private final Map<String, Long> jobStatusSeqByName;
   private final Map<String, Long> jobTypeSeqByName;
@@ -1919,5 +1939,134 @@ public class JobManagerSql {
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "auId = " + auId);
     return auId;
+  }
+
+  /**
+   * Provides the count of reindexing jobs not started yet.
+   * 
+   * @return a long with the count of jobs not started yet.
+   * @throws DbException
+   *           if any problem occurred accessing the database.
+   */
+  long getNotStartedReindexingJobsCount() throws DbException {
+    final String DEBUG_HEADER = "getNotStartedReindexingJobsCount(): ";
+    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Starting...");
+    long rowCount = -1;
+
+    Connection conn = null;
+    PreparedStatement stmt = null;
+    ResultSet resultSet = null;
+
+    try {
+      // Get a connection to the database.
+      conn = dbManager.getConnection();
+
+      // Prepare the query.
+      stmt =
+	  dbManager.prepareStatement(conn, COUNT_CREATED_REINDEXING_JOBS_QUERY);
+      stmt.setLong(1, jobTypeSeqByName.get(JOB_TYPE_DELETE_AU));
+      stmt.setLong(2, jobStatusSeqByName.get(JOB_STATUS_CREATED));
+
+      // Make the query.
+      resultSet = dbManager.executeQuery(stmt);
+      resultSet.next();
+      rowCount = resultSet.getLong(1);
+    } catch (SQLException sqle) {
+      String message = "Cannot get the count of jobs not started yet";
+      log.error(message, sqle);
+      log.error("SQL = '" + COUNT_CREATED_REINDEXING_JOBS_QUERY + "'.");
+      throw new DbException(message, sqle);
+    } catch (DbException dbe) {
+      String message = "Cannot get the count of jobs not started yet";
+      log.error(message, dbe);
+      log.error("SQL = '" + COUNT_CREATED_REINDEXING_JOBS_QUERY + "'.");
+      throw dbe;
+    } finally {
+      JobDbManager.safeCloseResultSet(resultSet);
+      JobDbManager.safeCloseStatement(stmt);
+      JobDbManager.safeRollbackAndClose(conn);
+    }
+
+    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "rowCount = " + rowCount);
+    return rowCount;
+  }
+
+  /**
+   * Provides data for reindexing jobs not started yet.
+   * 
+   * @param maxJobCount
+   *          An int with the maximum number of jobs to return.
+   * @return a List<Map<String, Object>> with the data for the jobs not started
+   *         yet.
+   * @throws DbException
+   *           if any problem occurred accessing the database.
+   */
+  List<Map<String, Object>> getNotStartedReindexingJobs(int maxJobCount)
+      throws DbException {
+    final String DEBUG_HEADER = "getNotStartedReindexingJobs(): ";
+    if (log.isDebug2())
+      log.debug2(DEBUG_HEADER + "maxJobCount = " + maxJobCount);
+
+    List<Map<String, Object>> notStartedJobs =
+	new ArrayList<Map<String, Object>>();
+
+    Connection conn = null;
+    PreparedStatement stmt = null;
+    ResultSet resultSet = null;
+
+    try {
+      // Get a connection to the database.
+      conn = dbManager.getConnection();
+
+      // Prepare the query.
+      stmt = dbManager.prepareStatement(conn, CREATED_REINDEXING_JOBS_QUERY);
+      stmt.setLong(1, jobTypeSeqByName.get(JOB_TYPE_DELETE_AU));
+      stmt.setLong(2, jobStatusSeqByName.get(JOB_STATUS_CREATED));
+      stmt.setMaxRows(maxJobCount);
+
+      // Make the query.
+      resultSet = dbManager.executeQuery(stmt);
+
+      while (resultSet.next()) {
+	Map<String, Object> job = new HashMap<String, Object>();
+
+	String description = resultSet.getString(DESCRIPTION_COLUMN);
+	if (log.isDebug3())
+	  log.debug3(DEBUG_HEADER + "description = " + description);
+	job.put(DESCRIPTION_COLUMN, description);
+
+	String auKey = resultSet.getString(AU_KEY_COLUMN);
+	if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auKey = " + auKey);
+	job.put(AU_KEY_COLUMN, auKey);
+
+	String pluginId = resultSet.getString(PLUGIN_ID_COLUMN);
+	if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginId = " + pluginId);
+	job.put(PLUGIN_ID_COLUMN, pluginId);
+
+	Long priority = resultSet.getLong(PRIORITY_COLUMN);
+	if (log.isDebug3()) log.debug3(DEBUG_HEADER + "priority = " + priority);
+	job.put(PRIORITY_COLUMN, priority);
+
+	notStartedJobs.add(job);
+      }
+    } catch (SQLException sqle) {
+      String message = "Cannot get the count of jobs not started yet";
+      log.error(message, sqle);
+      log.error("SQL = '" + CREATED_REINDEXING_JOBS_QUERY + "'.");
+      throw new DbException(message, sqle);
+    } catch (DbException dbe) {
+      String message = "Cannot get the count of jobs not started yet";
+      log.error(message, dbe);
+      log.error("SQL = '" + CREATED_REINDEXING_JOBS_QUERY + "'.");
+      throw dbe;
+    } finally {
+      JobDbManager.safeCloseResultSet(resultSet);
+      JobDbManager.safeCloseStatement(stmt);
+      JobDbManager.safeRollbackAndClose(conn);
+    }
+
+    if (log.isDebug2()) log.debug2(DEBUG_HEADER
+	+ "notStartedJobs.size() = " + notStartedJobs.size());
+    return notStartedJobs;
   }
 }

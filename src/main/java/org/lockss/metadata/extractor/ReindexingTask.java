@@ -897,15 +897,15 @@ public class ReindexingTask extends StepTask {
           // Fall through if SQL exception occurred during update.
         case Failed:
         case Rescheduled:
+          if (log.isDebug3()) log.debug3(DEBUG_HEADER
+              + "Reindexing task for AU '" + auName
+              + "' was unsuccessful: status = " + status);
+
+          mdxManager.addToFailedReindexingTasks(ReindexingTask.this);
+
           if (!mdxManager.isOnDemandMetadataExtractionOnly()) {
             // Reindexing not successful, so try again later if status indicates
             // the operation should be rescheduled.
-            if (log.isDebug3()) log.debug3(DEBUG_HEADER
-        	+ "Reindexing task for AU '" + auName
-        	+ "' was unsuccessful: status = " + status);
-
-            mdxManager.addToFailedReindexingTasks(ReindexingTask.this);
-
             try {
               // Get a connection to the database.
               conn = dbManager.getConnection();
@@ -970,11 +970,11 @@ public class ReindexingTask extends StepTask {
       articleMetadataInfoBuffer.close();
       articleMetadataInfoBuffer = null;
 
-      if (!mdxManager.isOnDemandMetadataExtractionOnly()) {
-	synchronized (mdxManager.activeReindexingTasks) {
-	  mdxManager.activeReindexingTasks.remove(au.getAuId());
-	  mdxManager.notifyFinishReindexingAu(au, status, task.getException());
+      synchronized (mdxManager.activeReindexingTasks) {
+	mdxManager.activeReindexingTasks.remove(au.getAuId());
+	mdxManager.notifyFinishReindexingAu(au, status, task.getException());
 
+	if (!mdxManager.isOnDemandMetadataExtractionOnly()) {
 	  try {
             // Get a connection to the database.
             conn = dbManager.getConnection();
@@ -990,8 +990,6 @@ public class ReindexingTask extends StepTask {
             MetadataDbManager.safeRollbackAndClose(conn);
           }
         }
-      } else {
-	mdxManager.notifyFinishReindexingAu(au, status, task.getException());
       }
     }
   }

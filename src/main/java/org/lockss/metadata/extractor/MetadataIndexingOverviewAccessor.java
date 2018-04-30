@@ -66,7 +66,7 @@ class MetadataIndexingOverviewAccessor implements OverviewAccessor {
               "active metadata indexing operation", 
               "active metadata index operations") + ", "
           + StringUtil.numberOfUnits(
-              pendingCount-activeCount, "pending", "pending");
+              pendingCount, "pending", "pending");
     } else {
       s = "Metadata Indexing Disabled";
     }
