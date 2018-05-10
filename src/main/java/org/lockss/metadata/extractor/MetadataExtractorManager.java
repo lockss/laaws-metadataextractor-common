@@ -1433,7 +1433,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
         if (activeReindexingTasks.containsKey(auId)) {
           ReindexingTask task = activeReindexingTasks.get(auId);
           task.cancel();
-          activeReindexingTasks.remove(task);
+          activeReindexingTasks.remove(auId);
         }
 
         // Remove the AU from the list of pending AUs if it is there.
@@ -2158,7 +2158,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     log.debug3(DEBUG_HEADER + "targetMdItemSeq = " + targetMdItemSeq);
 
     // Do not merge a metadata item into itself.
-    if (sourceMdItemSeq != targetMdItemSeq) {
+    if (!sourceMdItemSeq.equals(targetMdItemSeq)) {
       // Merge the names.
       mergeMdItemNames(conn, sourceMdItemSeq, targetMdItemSeq);
 
@@ -2301,7 +2301,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     log.debug3(DEBUG_HEADER + "targetMdItemSeq = " + targetMdItemSeq);
 
     // Do not merge a metadata item into itself.
-    if (sourceMdItemSeq != targetMdItemSeq) {
+    if (!sourceMdItemSeq.equals(targetMdItemSeq)) {
       // Merge the names.
       mergeMdItemNames(conn, sourceMdItemSeq, targetMdItemSeq);
 

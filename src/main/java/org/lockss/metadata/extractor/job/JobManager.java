@@ -415,7 +415,7 @@ public class JobManager extends BaseLockssDaemonManager implements
       for (JobTask jobTask : tasks) {
         if (log.isDebug3()) log.debug3(DEBUG_HEADER + "jobTask = " + jobTask);
 
-        if (jobSeq == jobTask.getJobId()) {
+        if (jobSeq.equals(jobTask.getJobId())) {
           jobTask.terminateTask();
           break;
         }

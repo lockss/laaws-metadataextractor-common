@@ -48,6 +48,7 @@ import org.lockss.config.Configuration;
 import org.lockss.daemon.Cron;
 import org.lockss.daemon.PluginException;
 import org.lockss.db.DbException;
+import org.lockss.db.DbManager;
 import org.lockss.exporter.counter.CounterReportsManager;
 import org.lockss.exporter.counter.CounterReportsRequestAggregator;
 import org.lockss.extractor.ArticleMetadata;
@@ -1037,7 +1038,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
 	count = resultSet.getInt(1);
       }
     } finally {
-      stmt.close();
+      DbManager.safeCloseStatement(stmt);
     }
 
     return count;
@@ -1070,7 +1071,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
 	count = resultSet.getInt(1);
       }
     } finally {
-      stmt.close();
+      DbManager.safeCloseStatement(stmt);
     }
 
     return count;
@@ -1096,7 +1097,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
         resultSet.getString(1);
       }
     } finally {
-      stmt.close();
+      DbManager.safeCloseStatement(stmt);
     }
     
     try {
@@ -1114,7 +1115,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
         count = resultSet.getInt(1);
       }
     } finally {
-      stmt.close();
+      DbManager.safeCloseStatement(stmt);
     }
 
     return count;
@@ -1134,7 +1135,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
 	count = resultSet.getInt(1);
       }
     } finally {
-      stmt.close();
+      DbManager.safeCloseStatement(stmt);
     }
 
     return count;
@@ -1155,7 +1156,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
 	count = resultSet.getInt(1);
       }
     } finally {
-      stmt.close();
+      DbManager.safeCloseStatement(stmt);
     }
 
     return count;
@@ -1175,7 +1176,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
 	count = resultSet.getInt(1);
       }
     } finally {
-      stmt.close();
+      DbManager.safeCloseStatement(stmt);
     }
 
     return count;
@@ -1206,7 +1207,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
       stmt.setInt(7, pdfRequests);
       dbManager.executeUpdate(stmt);
     } finally {
-      stmt.close();
+      DbManager.safeCloseStatement(stmt);
     }
   }
 
@@ -1230,7 +1231,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
 	publicationSeq = resultSet.getLong(PUBLICATION_SEQ_COLUMN);
       }
     } finally {
-      stmt.close();
+      DbManager.safeCloseStatement(stmt);
     }
 
     return publicationSeq;
@@ -1258,7 +1259,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
       assertEquals(isPublisherInvolved,
 	  resultSet.getBoolean(IS_PUBLISHER_INVOLVED_COLUMN));
     } finally {
-      stmt.close();
+      DbManager.safeCloseStatement(stmt);
     }
   }
 
@@ -1591,8 +1592,8 @@ public class TestAuMetadataRecorder extends LockssTestCase {
 	count = resultSet.getInt(1);
       }
     } finally {
-      resultSet.close();
-      stmt.close();
+      DbManager.safeCloseResultSet(resultSet);
+      DbManager.safeCloseStatement(stmt);
     }
 
     return count;
