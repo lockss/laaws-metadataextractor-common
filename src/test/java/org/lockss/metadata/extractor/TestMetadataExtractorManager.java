@@ -692,17 +692,12 @@ public class TestMetadataExtractorManager extends LockssTestCase {
     ausReindexed.clear();
 
     // simulate an au change
-    pluginManager.applyAuEvent(new PluginManager.AuEventClosure() {
-	public void execute(AuEventHandler hand) {
-	  AuEventHandler.ChangeInfo chInfo =
-	    new AuEventHandler.ChangeInfo();
-	  chInfo.setAu(sau0);        // reindex simulated AU
-	  chInfo.setComplete(true);   // crawl was complete
-	  hand.auContentChanged(new AuEvent(AuEvent.Type.ContentChanged, false),
-	                        sau0, chInfo);
-	}
-      });
-    
+    AuEvent.ContentChangeInfo chInfo = new AuEvent.ContentChangeInfo();
+    chInfo.setComplete(true);   // crawl was complete
+    AuEvent event =
+      AuEvent.forAu(sau0, AuEvent.Type.ContentChanged).setChangeInfo(chInfo);
+    pluginManager.signalAuEvent(sau0, event);
+
     // ensure only expected number of AUs were reindexed
     final int expectedAuCount = 1;
     int maxWaitTime = 10000; // 10 sec. per au
@@ -753,7 +748,7 @@ public class TestMetadataExtractorManager extends LockssTestCase {
     ausReindexed.clear();
 
     // delete AU
-    pluginManager.stopAu(sau0, new AuEvent(AuEvent.Type.Delete, false));
+    pluginManager.stopAu(sau0, AuEvent.forAu(sau0, AuEvent.Type.Delete));
 
     int maxWaitTime = 10000; // 10 sec. per au
     int articleCount = waitForDeleted(1, maxWaitTime);
