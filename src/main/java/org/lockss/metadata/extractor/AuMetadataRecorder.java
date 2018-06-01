@@ -49,6 +49,7 @@ import org.lockss.app.LockssDaemon;
 import org.lockss.config.ConfigManager;
 import org.lockss.config.CurrentConfig;
 import org.lockss.db.DbException;
+import org.lockss.db.DbManager;
 import org.lockss.exporter.counter.CounterReportsManager;
 import org.lockss.extractor.MetadataField;
 import org.lockss.laaws.mdq.model.ItemMetadata;
@@ -683,6 +684,15 @@ public class AuMetadataRecorder {
 	}
 	break;
 
+      case "mdMap":
+	if (mdinfo.mdMap == null
+	|| mdinfo.mdMap.size() == 0) {
+	  throw new MetadataIndexingException(
+	      "Missing mandatory metadata field '" + mandatoryField + "' in "
+		  + mdinfo.toString(), mdinfo);
+	}
+	break;
+
       default:
 	log.warning("Ignoring unknown mandatory field '" + mandatoryField
 	    + "'");
@@ -1004,6 +1014,31 @@ public class AuMetadataRecorder {
       } else {
         mdinfo.proprietarySeriesIdentifier = name;
       }
+    }
+
+    if (mdinfo.mdMap != null) {
+      Map<String, String> md = new HashMap<String, String>();
+      for (String key : mdinfo.mdMap.keySet()) {
+	String validKey = key;
+	if (key.length() > MAX_NAME_COLUMN) {
+	  log.warning("Metadata key too long '" + key + "' for title: '"
+	      + mdinfo.publicationTitle + "' publisher: " + mdinfo.publisher
+	      + "'");
+	  validKey = DbManager.truncateVarchar(key, MAX_NAME_COLUMN);
+	}
+
+	String value = mdinfo.mdMap.get(key).trim();
+	if (value.length() > MAX_MD_VALUE_COLUMN) {
+	  log.warning("Metadata value too long '" + mdinfo.mdMap.get(key)
+	      + "' for title: '" + mdinfo.publicationTitle + "' publisher: "
+	      + mdinfo.publisher + "'");
+	  md.put(validKey,
+	      DbManager.truncateVarchar(value, MAX_MD_VALUE_COLUMN));
+	} else {
+	  md.put(validKey, value);
+	}
+      }
+      mdinfo.mdMap = md;
     }
 
     return mdinfo;
@@ -1489,6 +1524,8 @@ public class AuMetadataRecorder {
     } else if (MetadataField.ARTICLE_TYPE_PROCEEDINGSARTICLE.
 	equals(childType)) {
       return MetadataField.PUBLICATION_TYPE_PROCEEDINGS.equals(parentType);
+    } else if (MetadataField.ARTICLE_TYPE_FILE.equals(childType)) {
+      return MetadataField.PUBLICATION_TYPE_FILE.equals(parentType);
     }
     
     return false;
@@ -1775,6 +1812,27 @@ public class AuMetadataRecorder {
     // Add the item DOI.
     mdManager.addMdItemDoi(conn, mdItemSeq, doi);
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "added AUItem DOI.");
+
+    // Get the generic key/value pairs received in the metadata.
+    Map<String, String> mdMap = mdinfo.mdMap;
+
+    if (log.isDebug3()) {
+      if (mdMap != null) {
+	for (String key : mdMap.keySet()) {
+	  log.debug3(DEBUG_HEADER + "key = " + key + ", value = "
+	      + mdMap.get(key));
+	}
+      } else {
+	log.debug3(DEBUG_HEADER + "mdMap = " + mdMap);
+      }
+    }
+
+    // Add the item generic key/value pairs received in the metadata.
+    if (mdMap != null) {
+      mdManager.addMdItemMd(conn, mdItemSeq, mdMap);
+      if (log.isDebug3())
+	log.debug3(DEBUG_HEADER + "added generic key/value pairs.");
+    }
 
     if (log.isDebug3())
       log.debug3(DEBUG_HEADER + "addedNewItem = " + addedNewItem);
