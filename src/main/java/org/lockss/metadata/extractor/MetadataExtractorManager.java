@@ -2735,6 +2735,8 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    *          returned.
    * @return a {@code List<ItemMetadata>} with the requested metadata of the
    *         Archival Unit.
+   * @throws IllegalArgumentException
+   *           if the Archival Unit cannot be found in the database.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
@@ -2906,16 +2908,18 @@ public class MetadataExtractorManager extends BaseLockssManager implements
   }
 
   /**
-   * Deletes the metadata stored for an AU given the AU identifier.
+   * Deletes from the database an Archival Unit given its identifier.
    * 
    * @param auId
    *          A String with the AU identifier.
    * @return an int with the number of articles deleted.
+   * @throws IllegalArgumentException
+   *           if the Archival Unit cannot be found in the database.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
-  public int deleteAuMetadataItems(String auId) throws DbException {
-    final String DEBUG_HEADER = "deleteAuMetadataItems(): ";
+  public int deleteAu(String auId) throws DbException {
+    final String DEBUG_HEADER = "deleteAu(): ";
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "auid = " + auId);
 
     Connection conn = null;
@@ -2925,15 +2929,22 @@ public class MetadataExtractorManager extends BaseLockssManager implements
       conn = dbManager.getConnection();
 
       if (conn == null) {
-	String message = "Cannot enable indexing for auid '" + auId
+	String message = "Cannot delete Archival Unit for auid '" + auId
 	    + "' - Cannot connect to database";
 
 	log.error(message);
 	throw new DbException(message);
       }
 
-      // Remove the metadata for this AU.
-      itemCount = mdxManagerSql.removeAuMetadataItems(conn, auId);
+      Long auSeq = mdxManagerSql.findAuByAuId(conn, auId);
+      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auSeq = " + auSeq);
+
+      if (auSeq == null) {
+	throw new IllegalArgumentException("AuId not found in DB: " + auId);
+      }
+
+      // Remove the AU from the database.
+      itemCount = deleteAu(conn, auId);
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "itemCount = " + itemCount);
 
       DbManager.commitOrRollback(conn, log);

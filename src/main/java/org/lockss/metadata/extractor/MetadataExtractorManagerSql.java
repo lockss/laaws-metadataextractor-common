@@ -2224,6 +2224,8 @@ public class MetadataExtractorManagerSql {
    *          returned.
    * @return a List<ItemMetadata> with the requested metadata of the Archival
    *         Unit.
+   * @throws IllegalArgumentException
+   *           if the Archival Unit cannot be found in the database.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
@@ -2242,6 +2244,13 @@ public class MetadataExtractorManagerSql {
     try {
       // Get a connection to the database.
       conn = dbManager.getConnection();
+
+      Long auSeq = findAuByAuId(conn, auId);
+      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auSeq = " + auSeq);
+
+      if (auSeq == null) {
+	throw new IllegalArgumentException("AuId not found in DB: " + auId);
+      }
 
       // Get the requested item metadata of the Archival Unit.
       items = getAuMetadataDetail(conn, auId, page, limit);
