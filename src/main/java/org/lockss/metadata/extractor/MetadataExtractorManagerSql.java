@@ -40,8 +40,10 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.lockss.db.DbException;
 import org.lockss.db.DbManager;
 import org.lockss.db.JdbcContext;
@@ -417,6 +419,7 @@ public class MetadataExtractorManagerSql {
       + ", u." + FEATURE_COLUMN
       + ", u." + URL_COLUMN
       + ", a." + AUTHOR_NAME_COLUMN
+      + ", a." + AUTHOR_IDX_COLUMN
       + ", k." + KEYWORD_COLUMN
       + ", issn." + ISSN_COLUMN
       + ", issn." + ISSN_TYPE_COLUMN
@@ -440,7 +443,7 @@ public class MetadataExtractorManagerSql {
       + " left outer join " + KEYWORD_TABLE + " k"
       + " on mi2." + MD_ITEM_SEQ_COLUMN + " = k." + MD_ITEM_SEQ_COLUMN
       + " where mi2." + MD_ITEM_SEQ_COLUMN + " in ()"
-      + " order by mi2." + MD_ITEM_SEQ_COLUMN;
+      + " order by mi2." + MD_ITEM_SEQ_COLUMN + ", a." + AUTHOR_IDX_COLUMN;
 
   private DbManager dbManager;
   private MetadataExtractorManager mdxManager;
@@ -2343,6 +2346,7 @@ public class MetadataExtractorManagerSql {
 	if (!mdItemSeq.equals(previousMdItemSeq)) {
 	  itemMetadata = new ItemMetadata();
 	  itemMetadata.setScalarMap(new HashMap<String, String>());
+	  itemMetadata.setSetMap(new HashMap<String, Set<String>>());
 	  itemMetadata.setListMap(new HashMap<String, List<String>>());
 	  itemMetadata.setMapMap(new HashMap<String, Map<String, String>>());
 
@@ -2560,14 +2564,13 @@ public class MetadataExtractorManagerSql {
 	  log.debug3(DEBUG_HEADER + "proprietaryId = " + proprietaryId);
 
 	if (!resultSet.wasNull()) {
-	  List<String> pis =
-	      itemMetadata.getListMap().get(PROPRIETARY_ID_COLUMN);
+	  Set<String> pis = itemMetadata.getSetMap().get(PROPRIETARY_ID_COLUMN);
 
 	  if (pis == null) {
-	    itemMetadata.getListMap().put(PROPRIETARY_ID_COLUMN,
-		new ArrayList<String>());
+	    itemMetadata.getSetMap().put(PROPRIETARY_ID_COLUMN,
+		new HashSet<String>());
 
-	    itemMetadata.getListMap().get(PROPRIETARY_ID_COLUMN)
+	    itemMetadata.getSetMap().get(PROPRIETARY_ID_COLUMN)
 	    .add(proprietaryId);
 	  } else {
 	    if (!pis.contains(proprietaryId)) {
@@ -2621,13 +2624,11 @@ public class MetadataExtractorManagerSql {
 	if (log.isDebug3()) log.debug3(DEBUG_HEADER + "keyword = " + keyword);
 
 	if (!resultSet.wasNull()) {
-	  List<String> keywords = itemMetadata.getListMap().get(KEYWORD_COLUMN);
+	  Set<String> keywords = itemMetadata.getSetMap().get(KEYWORD_COLUMN);
 
 	  if (keywords == null) {
-	    itemMetadata.getListMap().put(KEYWORD_COLUMN,
-		new ArrayList<String>());
-
-	    itemMetadata.getListMap().get(KEYWORD_COLUMN).add(keyword);
+	    itemMetadata.getSetMap().put(KEYWORD_COLUMN, new HashSet<String>());
+	    itemMetadata.getSetMap().get(KEYWORD_COLUMN).add(keyword);
 	  } else {
 	    if (!keywords.contains(keyword)) {
 	      keywords.add(keyword);

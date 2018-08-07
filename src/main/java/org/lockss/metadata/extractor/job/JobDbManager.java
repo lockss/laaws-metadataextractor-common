@@ -31,12 +31,15 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 package org.lockss.metadata.extractor.job;
 
+import java.io.File;
 import java.sql.Connection;
 import java.sql.SQLException;
 import org.lockss.app.ConfigurableManager;
+import org.lockss.config.ConfigManager;
 import org.lockss.config.Configuration;
 import org.lockss.db.DbManager;
 import org.lockss.db.DbException;
+import org.lockss.util.FileUtil;
 import org.lockss.util.Logger;
 
 /**
@@ -260,14 +263,22 @@ public class JobDbManager extends DbManager implements ConfigurableManager {
 
   @Override
   protected String getDataSourceDatabaseName(Configuration config) {
+    // Get the configured database name.
+    String dbName = config.get(PARAM_DATASOURCE_DATABASENAME,
+	  this.getClass().getSimpleName());
+
     if (isTypeDerby()) {
-      return config.get(PARAM_DATASOURCE_DATABASENAME,
-	"db/" + this.getClass().getSimpleName());
+      // Yes: Get the data source root directory.
+      String pathFromCache = "db/" + dbName;
+      File datasourceDir = ConfigManager.getConfigManager()
+	  .findConfiguredDataDir(pathFromCache, pathFromCache, false);
+
+      // Return the data source root directory.
+      return FileUtil.getCanonicalOrAbsolutePath(datasourceDir);
     }
 
-    return config.get(PARAM_DATASOURCE_DATABASENAME,
-	this.getClass().getSimpleName());
-}
+    return dbName;
+  }
 
   @Override
   protected String getDerbyInfoLogAppend(Configuration config) {

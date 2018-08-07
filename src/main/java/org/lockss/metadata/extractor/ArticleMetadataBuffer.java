@@ -44,11 +44,13 @@ import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Set;
 import org.lockss.daemon.PublicationDate;
 import org.lockss.extractor.ArticleMetadata;
 import org.lockss.extractor.MetadataField;
@@ -269,6 +271,7 @@ class ArticleMetadataBuffer {
       ItemMetadata item = new ItemMetadata();
 
       Map<String, String> scalarMap = item.getScalarMap();
+      Map<String, Set<String>> setMap = item.getSetMap();
       Map<String, List<String>> listMap = item.getListMap();
       Map<String, Map<String, String>> mapMap = item.getMapMap();
 
@@ -364,7 +367,7 @@ class ArticleMetadataBuffer {
       }
 
       if (keywords != null && keywords.size() > 0) {
-        listMap.put(KEYWORD_COLUMN, new ArrayList<String>(keywords));
+        setMap.put(KEYWORD_COLUMN, new HashSet<String>(keywords));
       }
 
       if (coverage != null) {
@@ -376,8 +379,8 @@ class ArticleMetadataBuffer {
       }
 
       if (proprietaryIdentifier != null) {
-        List<String> pis = new ArrayList<String>();
-        listMap.put(PROPRIETARY_ID_COLUMN, pis);
+        Set<String> pis = new HashSet<String>();
+        setMap.put(PROPRIETARY_ID_COLUMN, pis);
         pis.add(proprietaryIdentifier);
       }
 

@@ -342,6 +342,26 @@ public class MetadataExtractorManager extends BaseLockssManager implements
       DEFAULT_ON_DEMAND_METADATA_EXTRACTION_ONLY;
 
   /**
+   * No-argument constructor.
+   */
+  public MetadataExtractorManager() {
+  }
+
+  /**
+   * Constructor used for generating a testing database.
+   *
+   * @param dbManager
+   *          A MetadataDbManager with the database manager to be used.
+   */
+  public MetadataExtractorManager(MetadataDbManager dbManager)
+      throws DbException {
+    pluginMgr = new PluginManager();
+    this.dbManager = dbManager;
+    mdManager = new MetadataManager(dbManager);
+    mdxManagerSql = new MetadataExtractorManagerSql(dbManager, this);
+  }
+
+  /**
    * Starts the MetadataExtractorManager service.
    */
   @Override
@@ -2762,6 +2782,24 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    *           if any problem occurred.
    */
   public Long storeAuItemMetadata(ItemMetadata item) throws Exception {
+    return storeAuItemMetadata(item,
+	pluginMgr.getPluginFromAuId(item.getScalarMap().get("au_id")));
+ }
+
+  /**
+   * Stores in the database the metadata for an item belonging to an AU.
+   * Used for generating a testing database.
+   * 
+   * @param item
+   *          An ItemMetadata with the AU item metadata.
+   * @param plugin
+   *          A Plugin with the AU plugin to be written to the database.
+   * @return a Long with the database identifier of the metadata item.
+   * @throws Exception
+   *           if any problem occurred.
+   */
+  public Long storeAuItemMetadata(ItemMetadata item, Plugin plugin)
+      throws Exception {
     final String DEBUG_HEADER = "storeAuItemMetadata(): ";
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "item = " + item);
 
@@ -2792,9 +2830,8 @@ public class MetadataExtractorManager extends BaseLockssManager implements
         log.debug3(DEBUG_HEADER + "mandatoryFields = " + mandatoryFields);
 
       // Write the AU metadata to the database.
-      mdItemSeq = new AuMetadataRecorder(this,
-	  pluginMgr.getPluginFromAuId(auId), auId).recordMetadataItem(conn,
-	      mandatoryFields, mditr);
+      mdItemSeq = new AuMetadataRecorder(this, plugin, auId)
+	  .recordMetadataItem(conn, mandatoryFields, mditr);
 
       // Complete the database transaction.
       MetadataDbManager.commitOrRollback(conn, log);
@@ -2822,6 +2859,12 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 
     if (scalarMap == null) {
       scalarMap = new HashMap<String, String>();
+    }
+
+    Map<String, Set<String>> setMap = item.getSetMap();
+
+    if (setMap == null) {
+      setMap = new HashMap<String, Set<String>>();
     }
 
     Map<String, List<String>> listMap = item.getListMap();
@@ -2885,7 +2928,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
       am.putRaw(MetadataField.FIELD_FEATURED_URL_MAP.getKey(), urlMap);
     }
 
-    List<String> keywords = listMap.get(KEYWORD_COLUMN);
+    Set<String> keywords = setMap.get(KEYWORD_COLUMN);
 
     if (keywords != null) {
       for (String keyword : keywords) {
@@ -2896,10 +2939,10 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     am.put(MetadataField.FIELD_COVERAGE, scalarMap.get(COVERAGE_COLUMN));
     am.put(MetadataField.FIELD_ITEM_NUMBER, scalarMap.get(ITEM_NO_COLUMN));
 
-    List<String> pis = listMap.get(PROPRIETARY_ID_COLUMN);
+    Set<String> pis = setMap.get(PROPRIETARY_ID_COLUMN);
 
     if (pis != null && pis.size() > 0) {
-      am.put(MetadataField.FIELD_PROPRIETARY_IDENTIFIER, pis.get(0));
+      am.put(MetadataField.FIELD_PROPRIETARY_IDENTIFIER, pis.iterator().next());
     }
 
     am.put(MetadataField.FIELD_FETCH_TIME, scalarMap.get(FETCH_TIME_COLUMN));
