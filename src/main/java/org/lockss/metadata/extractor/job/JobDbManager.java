@@ -267,7 +267,8 @@ public class JobDbManager extends DbManager implements ConfigurableManager {
     String dbName = config.get(PARAM_DATASOURCE_DATABASENAME,
 	  this.getClass().getSimpleName());
 
-    if (isTypeDerby()) {
+    // Check whether it is a Derby database with a relative path database name.
+    if (isTypeDerby() && !dbName.startsWith(File.separator)) {
       // Yes: Get the data source root directory.
       String pathFromCache = "db/" + dbName;
       File datasourceDir = ConfigManager.getConfigManager()
