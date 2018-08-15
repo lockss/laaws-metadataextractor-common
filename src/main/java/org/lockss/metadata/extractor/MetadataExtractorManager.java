@@ -75,9 +75,9 @@ import org.lockss.scheduler.Schedule;
 import org.lockss.util.Constants;
 import org.lockss.util.Logger;
 import org.lockss.util.StringUtil;
-import org.lockss.util.TimeBase;
+import org.lockss.util.time.TimeBase;
 import org.lockss.util.PatternIntMap;
-import org.lockss.util.PlatformUtil;
+import org.lockss.util.os.PlatformUtil;
 
 /**
  * Implementation of a manager for extracting metadata from Archival Units.

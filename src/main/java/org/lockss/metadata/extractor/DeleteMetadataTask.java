@@ -48,7 +48,7 @@ import org.lockss.scheduler.StepTask;
 import org.lockss.scheduler.TaskCallback;
 import org.lockss.util.Constants;
 import org.lockss.util.Logger;
-import org.lockss.util.TimeBase;
+import org.lockss.util.time.TimeBase;
 import org.lockss.util.TimeInterval;
 
 /**

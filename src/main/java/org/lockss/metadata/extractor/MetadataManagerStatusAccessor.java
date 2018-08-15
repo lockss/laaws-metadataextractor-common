@@ -54,7 +54,7 @@ import org.lockss.state.ArchivalUnitStatus;
 import org.lockss.util.CatalogueOrderComparator;
 import org.lockss.util.ListUtil;
 import org.lockss.util.Logger;
-import org.lockss.util.TimeBase;
+import org.lockss.util.time.TimeBase;
 
 /**
  * This class displays the MetadataManager status for the current

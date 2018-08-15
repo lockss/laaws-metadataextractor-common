@@ -48,7 +48,9 @@ import org.lockss.metadata.extractor.ArticleMetadataBuffer.ArticleMetadataInfo;
 import org.lockss.metadata.extractor.MetadataExtractorManager.ReindexingStatus;
 import org.lockss.plugin.*;
 import org.lockss.scheduler.*;
+import org.lockss.util.time.TimeBase;
 import org.lockss.util.*;
+import org.lockss.util.os.PlatformUtil;
 
 /**
  * Implements a reindexing task that extracts metadata from all the articles in

@@ -63,7 +63,7 @@ import org.lockss.plugin.PluginManager;
 import org.lockss.util.Logger;
 import org.lockss.util.MetadataUtil;
 import org.lockss.util.StringUtil;
-import org.lockss.util.TimeBase;
+import org.lockss.util.time.TimeBase;
 
 /**
  * Writes to the database metadata related to an archival unit.
