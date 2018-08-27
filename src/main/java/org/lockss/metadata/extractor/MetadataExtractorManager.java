@@ -2806,11 +2806,12 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     Long mdItemSeq = null;
     Connection conn = null;
 
+    ArticleMetadataBuffer articleMetadataInfoBuffer = null;
     try {
       String auId = item.getScalarMap().get("au_id");
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auId = " + auId);
 
-      ArticleMetadataBuffer articleMetadataInfoBuffer =
+      articleMetadataInfoBuffer =
 	  new ArticleMetadataBuffer(new File(PlatformUtil.getSystemTempDir()));
 
       ArticleMetadata md = populateArticleMetadata(item);
@@ -2841,6 +2842,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
       throw e;
     } finally {
       MetadataDbManager.safeRollbackAndClose(conn);
+      articleMetadataInfoBuffer.close();
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "mdItemSeq = " + mdItemSeq);

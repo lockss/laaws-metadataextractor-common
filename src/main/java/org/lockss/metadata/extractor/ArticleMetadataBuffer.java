@@ -548,6 +548,8 @@ class ArticleMetadataBuffer {
     IOUtil.safeClose(instream);
     outstream = null;
     instream = null;
+    // but delete the file anyway in case it wasn't read (happens in tests)
+    FileUtil.safeDeleteFile(collectedMetadataFile);
     collectedMetadataFile = null;
   }
 }
