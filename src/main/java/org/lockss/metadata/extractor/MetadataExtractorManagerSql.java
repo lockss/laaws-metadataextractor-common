@@ -2279,28 +2279,18 @@ public class MetadataExtractorManagerSql {
       // Evaluate the pagination consistency of the request.
       if (auExtractionTimestamp != null
 	  && auExtractionTimestamp.longValue() != extractionTime) {
-	throw new ConcurrentModificationException("Request pagination "
-	    + "timestamp: " + continuationToken.getAuExtractionTimestamp()
-	    + ", current timestamp:" + " " + extractionTime);
+	String message = "Incompatible pagination request: request timestamp: "
+	    + continuationToken.getAuExtractionTimestamp()
+	    + ", current timestamp:" + " " + extractionTime;
+	log.warning(message);
+	throw new ConcurrentModificationException("Incompatible pagination for "
+	    + "auid '" + auId + "': Metadata has changed since previous "
+	    + "request");
       }
 
       // Get the requested item metadata of the Archival Unit.
-      List<ItemMetadata> items =
-	  getAuMetadataDetail(conn, auId, limit, lastItemMdItemSeq);
-      result.setItems(items);
-
-      // Check whether there may be additional items.
-      if (items != null && !items.isEmpty()
-	  && items.size() == limit.intValue()) {
-	// Yes: Build and save the response continuation token.
-	ItemMetadataContinuationToken newContinuationToken =
-	    new ItemMetadataContinuationToken(extractionTime,
-		items.get(items.size()-1).getId());
-	if (log.isDebug3()) log.debug3(DEBUG_HEADER
-	    + "newContinuationToken = " + newContinuationToken);
-
-	result.setContinuationToken(newContinuationToken);
-      }
+      result = getAuMetadataDetail(conn, auId, extractionTime, limit,
+	  lastItemMdItemSeq);
     } finally {
       DbManager.safeRollbackAndClose(conn);
     }
@@ -2317,27 +2307,33 @@ public class MetadataExtractorManagerSql {
    *          A Connection with the database connection to be used.
    * @param auId
    *          A String with the Archival Unit text identifier.
+   * @param auExtractionTime
+   *          A long with the Archival Unit last extraction time.
    * @param limit
    *          An Integer with the maximum number of AU metadata items to be
    *          returned.
    * @param lastItemMdItemSeq
    *          A Long with the primary key of the last item previously returned,
    *          if any.
-   * @return a List<ItemMetadata> with the requested metadata of the Archival
+   * @return an ItemMetadataPage with the requested metadata of the Archival
    *         Unit.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
-  List<ItemMetadata> getAuMetadataDetail(Connection conn, String auId,
-      Integer limit, Long lastItemMdItemSeq) throws DbException {
+  private ItemMetadataPage getAuMetadataDetail(Connection conn, String auId,
+      long auExtractionTime, Integer limit, Long lastItemMdItemSeq)
+	  throws DbException {
     final String DEBUG_HEADER = "getAuMetadataDetail(): ";
     if (log.isDebug2()) {
       log.debug2(DEBUG_HEADER + "auId = " + auId);
+      log.debug2(DEBUG_HEADER + "auExtractionTime = " + auExtractionTime);
       log.debug2(DEBUG_HEADER + "limit = " + limit);
       log.debug2(DEBUG_HEADER + "lastItemMdItemSeq = " + lastItemMdItemSeq);
     }
 
+    ItemMetadataPage result = new ItemMetadataPage();
     List<ItemMetadata> items = new ArrayList<ItemMetadata>();
+    result.setItems(items);
 
     Map<Long, ItemMetadata> itemMap = new HashMap<Long, ItemMetadata>();
 
@@ -2350,6 +2346,10 @@ public class MetadataExtractorManagerSql {
     PreparedStatement getScalarMetadata = dbManager.prepareStatement(conn, sql);
 
     ResultSet resultSet = null;
+
+    // Indication of whether there are more results that may be requested in a
+    // subsequent pagination request.
+    boolean hasMore = false;
 
     try {
       pluginId = PluginManager.pluginIdFromAuId(auId);
@@ -2368,13 +2368,30 @@ public class MetadataExtractorManagerSql {
 	getScalarMetadata.setLong(3, lastItemMdItemSeq);
       }
 
-      if (limit != null && limit.intValue() >= 0) {
-	getScalarMetadata.setMaxRows(limit);
+      boolean isPaginating = false;
+
+      // Determine whether this is a paginating request.
+      if (limit != null && limit.intValue() > 0) {
+	// Yes.
+	isPaginating = true;
+
+	// Request one more row than needed, to determine whether there will be
+	// additional results besides this requested page.
+	getScalarMetadata.setMaxRows(limit + 1);
       }
 
       resultSet = dbManager.executeQuery(getScalarMetadata);
 
       while (resultSet.next()) {
+	// Check whether the full requested page has already been obtained.
+	if (isPaginating && items.size() == limit) {
+	  // Yes: There are more results after this page.
+	  hasMore = true;
+
+	  // Do not process the additional row.
+	  break;
+	}
+
 	Long mdItemSeq = resultSet.getLong(MD_ITEM_SEQ_COLUMN);
 	if (log.isDebug3())
 	  log.debug3(DEBUG_HEADER + "mdItemSeq = " + mdItemSeq);
@@ -2507,8 +2524,8 @@ public class MetadataExtractorManagerSql {
       // Check whether no metadata was found for the given Archival Unit.
       if (items.size() == 0) {
 	// Yes: Done.
-	if (log.isDebug2()) log.debug2(DEBUG_HEADER + "items = " + items);
-	return items;
+	if (log.isDebug2()) log.debug2(DEBUG_HEADER + "result = " + result);
+	return result;
       }
 
       // No: Get the repeatable metadata.
@@ -2676,7 +2693,8 @@ public class MetadataExtractorManagerSql {
       String message = "Cannot get AU metadata";
       log.error(message, sqle);
       log.error("auId = '" + auId + "'.");
-      log.error("limit = '" + limit + "'.");
+      log.error("auExtractionTime = " + auExtractionTime);
+      log.error("limit = " + limit);
       log.error("lastItemMdItemSeq = " + lastItemMdItemSeq);
       log.error("SQL = '" + sql + "'.");
       log.error("pluginId = '" + pluginId + "'.");
@@ -2687,8 +2705,19 @@ public class MetadataExtractorManagerSql {
       DbManager.safeCloseStatement(getScalarMetadata);
     }
 
-    if (log.isDebug2())
-      log.debug2(DEBUG_HEADER + "items.size() = " + items.size());
-    return items;
+    // Check whether there are additional items after this page.
+    if (hasMore) {
+      // Yes: Build and save the response continuation token.
+      ItemMetadataContinuationToken continuationToken =
+	  new ItemMetadataContinuationToken(auExtractionTime,
+	      items.get(items.size()-1).getId());
+      if (log.isDebug3()) log.debug3(DEBUG_HEADER
+	  + "continuationToken = " + continuationToken);
+
+      result.setContinuationToken(continuationToken);
+    }
+
+    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
+    return result;
   }
 }
