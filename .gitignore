@@ -5,3 +5,5 @@
 .settings
 derby.log
 /pom.xml.versionsBackup
+/logs/
+

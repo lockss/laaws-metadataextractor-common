@@ -54,7 +54,7 @@ import java.util.Set;
 import org.lockss.daemon.PublicationDate;
 import org.lockss.extractor.ArticleMetadata;
 import org.lockss.extractor.MetadataField;
-import org.lockss.laaws.mdq.model.ItemMetadata;
+import org.lockss.metadata.ItemMetadata;
 import org.lockss.metadata.MetadataManager;
 import org.lockss.util.CloseCallbackInputStream.DeleteFileOnCloseInputStream;
 import org.lockss.util.FileUtil;

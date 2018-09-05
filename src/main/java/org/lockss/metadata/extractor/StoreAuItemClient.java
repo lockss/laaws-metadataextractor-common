@@ -35,7 +35,7 @@ import static org.lockss.metadata.extractor.MetadataExtractorManager.*;
 import java.nio.charset.Charset;
 import java.util.Base64;
 import org.lockss.config.CurrentConfig;
-import org.lockss.laaws.mdq.model.ItemMetadata;
+import org.lockss.metadata.ItemMetadata;
 import org.lockss.util.Logger;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;

@@ -58,9 +58,11 @@ import org.lockss.extractor.ArticleMetadataExtractor;
 import org.lockss.extractor.BaseArticleMetadataExtractor;
 import org.lockss.extractor.MetadataField;
 import org.lockss.extractor.MetadataTarget;
-import org.lockss.laaws.mdq.model.ItemMetadata;
 import org.lockss.metadata.Isbn;
 import org.lockss.metadata.Issn;
+import org.lockss.metadata.ItemMetadata;
+import org.lockss.metadata.ItemMetadataContinuationToken;
+import org.lockss.metadata.ItemMetadataPage;
 import org.lockss.metadata.MetadataDbManager;
 import org.lockss.metadata.MetadataManager;
 import org.lockss.metadata.extractor.ArticleMetadataBuffer.ArticleMetadataInfo;
@@ -2748,28 +2750,32 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * 
    * @param auId
    *          A String with the Archival Unit text identifier.
-   * @param page
-   *          An Integer with the index of the page to be returned.
    * @param limit
    *          An Integer with the maximum number of AU metadata items to be
    *          returned.
-   * @return a {@code List<ItemMetadata>} with the requested metadata of the
-   *         Archival Unit.
+   * @param continuationToken
+   *          An ItemMetadataContinuationToken with the pagination token, if
+   *          any.
+   * @return an ItemMetadataPage with the requested metadata of the Archival
+   *         Unit.
    * @throws IllegalArgumentException
    *           if the Archival Unit cannot be found in the database.
+   * @throws ConcurrentModificationException
+   *           if there is a conflict between the pagination request and the
+   *           current content in the database.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
-  public List<ItemMetadata> getAuMetadataDetail(String auId, Integer page,
-      Integer limit) throws DbException {
+  public ItemMetadataPage getAuMetadataDetail(String auId, Integer limit,
+      ItemMetadataContinuationToken continuationToken) throws DbException {
     final String DEBUG_HEADER = "getAuMetadataDetail(): ";
     if (log.isDebug2()) {
       log.debug2(DEBUG_HEADER + "auId = " + auId);
-      log.debug2(DEBUG_HEADER + "page = " + page);
       log.debug2(DEBUG_HEADER + "limit = " + limit);
+      log.debug2(DEBUG_HEADER + "continuationToken = " + continuationToken);
     }
 
-    return mdxManagerSql.getAuMetadataDetail(auId, page, limit);
+    return mdxManagerSql.getAuMetadataDetail(auId, limit, continuationToken);
   }
 
   /**
@@ -2788,7 +2794,6 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 
   /**
    * Stores in the database the metadata for an item belonging to an AU.
-   * Used for generating a testing database.
    * 
    * @param item
    *          An ItemMetadata with the AU item metadata.
@@ -2999,5 +3004,70 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "itemCount = " + itemCount);
     return itemCount;
+  }
+
+  /**
+   * Stores in the database the metadata for an item belonging to an AU.
+   * Used for generating a testing database.
+   * 
+   * @param item
+   *          An ItemMetadata with the AU item metadata.
+   * @param plugin
+   *          A Plugin with the AU plugin to be written to the database.
+   * @return a Long with the database identifier of the metadata item.
+   * @throws Exception
+   *           if any problem occurred.
+   */
+  public Long storeAuItemMetadataForTesting(ItemMetadata item, Plugin plugin)
+      throws Exception {
+    final String DEBUG_HEADER = "storeAuItemMetadata(): ";
+    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "item = " + item);
+
+    Long mdItemSeq = storeAuItemMetadata(item, plugin);
+    updateAuLastExtractionTime(item.getScalarMap().get("au_id"));
+
+    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "mdItemSeq = " + mdItemSeq);
+    return mdItemSeq;
+ }
+
+  /**
+   * Updates the timestamp of the last extraction of an Archival Unit metadata.
+   * Used for testing.
+   * @param au
+   *          The ArchivalUnit whose time to update.
+   * @param conn
+   *          A Connection with the database connection to be used.
+   * @param auMdSeq
+   *          A Long with the identifier of the Archival Unit metadata.
+   * @throws DbException
+   *           if any problem occurred accessing the database.
+   */
+  void updateAuLastExtractionTime(String auId) throws DbException {
+    final String DEBUG_HEADER = "updateAuLastExtractionTime(): ";
+    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "auId = " + auId);
+
+    Connection conn = null;
+
+    try {
+      // Get a connection to the database.
+      conn = dbManager.getConnection();
+
+      Long auMdSeq = mdxManagerSql.findAuMdByAuId(conn, auId);
+      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auMdSeq = " + auMdSeq);
+
+      long now = TimeBase.nowMs();
+      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "now = " + now);
+
+      mdxManagerSql.updateAuLastExtractionTime(conn, auMdSeq, now);
+
+      // Complete the database transaction.
+      MetadataDbManager.commitOrRollback(conn, log);
+    } catch (Exception e) {
+      log.error("Error updating AU extraction time", e);
+      log.error("auId = " + auId);
+      throw e;
+    } finally {
+      MetadataDbManager.safeRollbackAndClose(conn);
+    }
   }
 }

@@ -39,6 +39,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.ConcurrentModificationException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -47,7 +48,9 @@ import java.util.Set;
 import org.lockss.db.DbException;
 import org.lockss.db.DbManager;
 import org.lockss.db.JdbcContext;
-import org.lockss.laaws.mdq.model.ItemMetadata;
+import org.lockss.metadata.ItemMetadata;
+import org.lockss.metadata.ItemMetadataContinuationToken;
+import org.lockss.metadata.ItemMetadataPage;
 import org.lockss.metadata.extractor.MetadataExtractorManager.PrioritizedAuId;
 import org.lockss.plugin.ArchivalUnit;
 import org.lockss.plugin.PluginManager;
@@ -369,7 +372,7 @@ public class MetadataExtractorManagerSql {
       + ")";
 
   // Query to find a page of metadata items of an AU in the database.
-  private static final String FIND_OFFSET_AU_MD_ITEM_QUERY = "select "
+  private static final String FIND_NEXT_PAGE_AU_MD_ITEM_QUERY = "select "
       + "distinct pr." + PUBLISHER_NAME_COLUMN
       + ", min1." + NAME_COLUMN + " as publication_name"
       + ", mi2." + MD_ITEM_SEQ_COLUMN
@@ -409,8 +412,8 @@ public class MetadataExtractorManagerSql {
       + " and am." + PROVIDER_SEQ_COLUMN + " = pv." + PROVIDER_SEQ_COLUMN
       + " and pl." + PLUGIN_ID_COLUMN + " = ?"
       + " and au." + AU_KEY_COLUMN + " = ?"
-      + " order by mi2." + MD_ITEM_SEQ_COLUMN
-      + " offset ?";
+      + " and mi2." + MD_ITEM_SEQ_COLUMN + " > ?"
+      + " order by mi2." + MD_ITEM_SEQ_COLUMN;
 
   // Query to find the possibly multiple metadata children of metadata items in
   // the database.
@@ -893,7 +896,7 @@ public class MetadataExtractorManagerSql {
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
-  private Long findAuMdByAuId(Connection conn, String auId) throws DbException {
+  Long findAuMdByAuId(Connection conn, String auId) throws DbException {
     final String DEBUG_HEADER = "findAuMdByAuId(): ";
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "auId = " + auId);
 
@@ -2220,28 +2223,32 @@ public class MetadataExtractorManagerSql {
    * 
    * @param auId
    *          A String with the Archival Unit text identifier.
-   * @param page
-   *          An Integer with the index of the page to be returned.
    * @param limit
    *          An Integer with the maximum number of AU metadata items to be
    *          returned.
-   * @return a List<ItemMetadata> with the requested metadata of the Archival
+   * @param continuationToken
+   *          An ItemMetadataContinuationToken with the pagination token, if
+   *          any.
+   * @return an ItemMetadataPage with the requested metadata of the Archival
    *         Unit.
    * @throws IllegalArgumentException
    *           if the Archival Unit cannot be found in the database.
+   * @throws ConcurrentModificationException
+   *           if there is a conflict between the pagination request and the
+   *           current content in the database.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
-  List<ItemMetadata> getAuMetadataDetail(String auId, Integer page,
-      Integer limit) throws DbException {
+  ItemMetadataPage getAuMetadataDetail(String auId, Integer limit,
+      ItemMetadataContinuationToken continuationToken) throws DbException {
     final String DEBUG_HEADER = "getAuMetadataDetail(): ";
     if (log.isDebug2()) {
       log.debug2(DEBUG_HEADER + "auId = " + auId);
-      log.debug2(DEBUG_HEADER + "page = " + page);
       log.debug2(DEBUG_HEADER + "limit = " + limit);
+      log.debug2(DEBUG_HEADER + "continuationToken = " + continuationToken);
     }
 
-    List<ItemMetadata> items = null;
+    ItemMetadataPage result = new ItemMetadataPage();
     Connection conn = null;
 
     try {
@@ -2255,14 +2262,51 @@ public class MetadataExtractorManagerSql {
 	throw new IllegalArgumentException("AuId not found in DB: " + auId);
       }
 
+      // Get the last extraction time of the Archival Unit.
+      long extractionTime = getAuExtractionTime(conn, auSeq);
+      if (log.isDebug3())
+	log.debug3(DEBUG_HEADER + "extractionTime = " + extractionTime);
+
+      // Get the continuation token members, if any.
+      Long auExtractionTimestamp = null;
+      Long lastItemMdItemSeq = null;
+
+      if (continuationToken != null) {
+	auExtractionTimestamp = continuationToken.getAuExtractionTimestamp();
+	lastItemMdItemSeq = continuationToken.getLastItemMdItemSeq();
+      }
+
+      // Evaluate the pagination consistency of the request.
+      if (auExtractionTimestamp != null
+	  && auExtractionTimestamp.longValue() != extractionTime) {
+	throw new ConcurrentModificationException("Request pagination "
+	    + "timestamp: " + continuationToken.getAuExtractionTimestamp()
+	    + ", current timestamp:" + " " + extractionTime);
+      }
+
       // Get the requested item metadata of the Archival Unit.
-      items = getAuMetadataDetail(conn, auId, page, limit);
+      List<ItemMetadata> items =
+	  getAuMetadataDetail(conn, auId, limit, lastItemMdItemSeq);
+      result.setItems(items);
+
+      // Check whether there may be additional items.
+      if (items != null && !items.isEmpty()
+	  && items.size() == limit.intValue()) {
+	// Yes: Build and save the response continuation token.
+	ItemMetadataContinuationToken newContinuationToken =
+	    new ItemMetadataContinuationToken(extractionTime,
+		items.get(items.size()-1).getId());
+	if (log.isDebug3()) log.debug3(DEBUG_HEADER
+	    + "newContinuationToken = " + newContinuationToken);
+
+	result.setContinuationToken(newContinuationToken);
+      }
     } finally {
       DbManager.safeRollbackAndClose(conn);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
-    return items;
+    return result;
   }
 
   /**
@@ -2273,23 +2317,24 @@ public class MetadataExtractorManagerSql {
    *          A Connection with the database connection to be used.
    * @param auId
    *          A String with the Archival Unit text identifier.
-   * @param page
-   *          An Integer with the index of the page to be returned.
    * @param limit
    *          An Integer with the maximum number of AU metadata items to be
    *          returned.
+   * @param lastItemMdItemSeq
+   *          A Long with the primary key of the last item previously returned,
+   *          if any.
    * @return a List<ItemMetadata> with the requested metadata of the Archival
    *         Unit.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
   List<ItemMetadata> getAuMetadataDetail(Connection conn, String auId,
-      Integer page, Integer limit) throws DbException {
+      Integer limit, Long lastItemMdItemSeq) throws DbException {
     final String DEBUG_HEADER = "getAuMetadataDetail(): ";
     if (log.isDebug2()) {
       log.debug2(DEBUG_HEADER + "auId = " + auId);
-      log.debug2(DEBUG_HEADER + "page = " + page);
       log.debug2(DEBUG_HEADER + "limit = " + limit);
+      log.debug2(DEBUG_HEADER + "lastItemMdItemSeq = " + lastItemMdItemSeq);
     }
 
     List<ItemMetadata> items = new ArrayList<ItemMetadata>();
@@ -2300,22 +2345,7 @@ public class MetadataExtractorManagerSql {
     String auKey = null;
     Long previousMdItemSeq = null;
     ItemMetadata itemMetadata = null;
-    String sql = FIND_OFFSET_AU_MD_ITEM_QUERY;
-
-    if (dbManager.isTypeDerby()) {
-      sql = sql + " rows";
-    }
-
-    if (log.isDebug3()) log.debug3(DEBUG_HEADER + "sql = " + sql);
-
-    int offset = 0;
-
-    if (page != null && page.intValue() > 0
-	&& limit != null && limit.intValue() >= 0) {
-      offset = (page - 1) * limit;
-    }
-
-    if (log.isDebug3()) log.debug3(DEBUG_HEADER + "offset = " + offset);
+    String sql = FIND_NEXT_PAGE_AU_MD_ITEM_QUERY;
 
     PreparedStatement getScalarMetadata = dbManager.prepareStatement(conn, sql);
 
@@ -2330,7 +2360,13 @@ public class MetadataExtractorManagerSql {
 
       getScalarMetadata.setString(1, pluginId);
       getScalarMetadata.setString(2, auKey);
-      getScalarMetadata.setInt(3, offset);
+
+      // Handle the first page of requested results.
+      if (lastItemMdItemSeq == null) {
+	getScalarMetadata.setLong(3, -1);
+      } else {
+	getScalarMetadata.setLong(3, lastItemMdItemSeq);
+      }
 
       if (limit != null && limit.intValue() >= 0) {
 	getScalarMetadata.setMaxRows(limit);
@@ -2344,7 +2380,7 @@ public class MetadataExtractorManagerSql {
 	  log.debug3(DEBUG_HEADER + "mdItemSeq = " + mdItemSeq);
 
 	if (!mdItemSeq.equals(previousMdItemSeq)) {
-	  itemMetadata = new ItemMetadata();
+	  itemMetadata = new ItemMetadata(mdItemSeq);
 	  itemMetadata.setScalarMap(new HashMap<String, String>());
 	  itemMetadata.setSetMap(new HashMap<String, Set<String>>());
 	  itemMetadata.setListMap(new HashMap<String, List<String>>());
@@ -2640,8 +2676,8 @@ public class MetadataExtractorManagerSql {
       String message = "Cannot get AU metadata";
       log.error(message, sqle);
       log.error("auId = '" + auId + "'.");
-      log.error("page = '" + page + "'.");
       log.error("limit = '" + limit + "'.");
+      log.error("lastItemMdItemSeq = " + lastItemMdItemSeq);
       log.error("SQL = '" + sql + "'.");
       log.error("pluginId = '" + pluginId + "'.");
       log.error("auKey = '" + auKey + "'.");

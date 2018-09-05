@@ -161,6 +161,15 @@ public class JobDbManager extends DbManager implements ConfigurableManager {
    */
   public JobDbManager() {
     super();
+    setUpVersions();
+  }
+
+  /**
+   * Sets up update versions.
+   */
+  private void setUpVersions() {
+    targetDatabaseVersion = 2;
+    asynchronousUpdates = new int[] {};
   }
 
   /**
