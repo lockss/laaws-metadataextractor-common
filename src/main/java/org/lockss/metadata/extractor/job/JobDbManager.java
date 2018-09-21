@@ -168,7 +168,7 @@ public class JobDbManager extends DbManager implements ConfigurableManager {
    * Sets up update versions.
    */
   private void setUpVersions() {
-    targetDatabaseVersion = 2;
+    targetDatabaseVersion = 3;
     asynchronousUpdates = new int[] {};
   }
 
@@ -217,9 +217,6 @@ public class JobDbManager extends DbManager implements ConfigurableManager {
       fetchSize = config.getInt(PARAM_FETCH_SIZE, DEFAULT_FETCH_SIZE);
       dbManagerSql.setFetchSize(fetchSize);
     }
-
-    targetDatabaseVersion = 2;
-    asynchronousUpdates = new int[] {};
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
   }
@@ -420,6 +417,8 @@ public class JobDbManager extends DbManager implements ConfigurableManager {
       jobDbManagerSql.setUpDatabaseVersion1(conn);
     } else if (databaseVersion == 2) {
       jobDbManagerSql.updateDatabaseFrom1To2(conn);
+    } else if (databaseVersion == 3) {
+      jobDbManagerSql.updateDatabaseFrom2To3(conn);
     } else {
       throw new RuntimeException("Non-existent method to update the database "
 	  + "to version " + databaseVersion + ".");

@@ -2219,7 +2219,7 @@ public class MetadataExtractorManagerSql {
 
   /**
    * Provides the full metadata stored for an AU given the AU identifier or a
-   * pageful of the metadata defined by the page index and size.
+   * pageful of the metadata defined by the continuation token and size.
    * 
    * @param auId
    *          A String with the Archival Unit text identifier.

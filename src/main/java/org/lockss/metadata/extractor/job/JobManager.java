@@ -33,6 +33,7 @@ package org.lockss.metadata.extractor.job;
 
 import java.sql.Connection;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -116,6 +117,26 @@ public class JobManager extends BaseLockssDaemonManager implements
 
   private ExecutorService taskExecutor = null;
   private List<JobTask> tasks = null;
+
+  public JobManager() {
+  }
+
+  /**
+   * Constructor used for generating a testing database.
+   *
+   * @param dbManager
+   *          A JobDbManager with the database manager to be used.
+   */
+  public JobManager(JobDbManager dbManager) {
+    this.dbManager = dbManager;
+
+    try {
+      jobManagerSql = new JobManagerSql(dbManager);
+    } catch (DbException dbe) {
+      log.error("Cannot obtain JobManagerSql", dbe);
+      return;
+    }
+  }
 
   /**
    * Handler of configuration changes.
@@ -296,42 +317,36 @@ public class JobManager extends BaseLockssDaemonManager implements
   }
 
   /**
-   * Provides a list of existing jobs.
+   * Provides a list of all currently active jobs or a pageful of the list
+   * defined by the continuation token and size.
    * 
-   * @param page
-   *          An Integer with the index of the page to be returned.
    * @param limit
    *          An Integer with the maximum number of jobs to be returned.
-   * @return a {@code List<Job>} with the existing jobs.
+   * @param continuationToken
+   *          A JobContinuationToken with the pagination token, if any.
+   * @return a JobPage with the requested list of jobs.
+   * @throws ConcurrentModificationException
+   *           if there is a conflict between the pagination request and the
+   *           current content in the database.
    * @throws Exception
    *           if there are problems getting the jobs.
    */
-  public List<JobAuStatus> getJobs(Integer page, Integer limit)
+  public JobPage getJobs(Integer limit, JobContinuationToken continuationToken)
       throws Exception {
     final String DEBUG_HEADER = "getJobs(): ";
     if (log.isDebug2()) {
-      log.debug2(DEBUG_HEADER + "page = " + page);
       log.debug2(DEBUG_HEADER + "limit = " + limit);
+      log.debug2(DEBUG_HEADER + "continuationToken = " + continuationToken);
     }
 
-    List<JobAuStatus> jobs = new ArrayList<JobAuStatus>();
-    List<JobAuStatus> dbJobs = null;
+    JobPage jobPage = jobManagerSql.getJobs(limit, continuationToken);
 
-    try {
-      dbJobs = jobManagerSql.getJobs(page, limit);
-    } catch (Exception e) {
-      String message =
-	  "Cannot get jobs for page = " + page + ", limit = " + limit;
-      log.error(message, e);
-      throw new Exception(message, e);
+    // Populate the Archival Unit names.
+    for (Job job : jobPage.getJobs()) {
+      job.getAu().setName(getAuName(job.getAu().getId()));
     }
 
-    for (JobAuStatus dbJob : dbJobs) {
-      dbJob.setAuName(getAuName(dbJob.getAuId()));
-      jobs.add(dbJob);
-    }
-
-    return jobs;
+    return jobPage;
   }
 
   /**
@@ -846,5 +861,63 @@ public class JobManager extends BaseLockssDaemonManager implements
     }
 
     return new ArrayList<Map<String, Object>>();
+  }
+
+  /**
+   * Adds a job to the database for testing.
+   * 
+   * @param jobTypeSeq
+   *          A Long with the database identifier of the type of the job to be
+   *          added.
+   * @param description
+   *          A String with the description of the job to be added.
+   * @param auId
+   *          A String with the Archival Unit identifier.
+   * @param jobStatusSeq
+   *          A Long with the database identifier of the status of the job to be
+   *          added.
+   * @param statusMessage
+   *          A String with the message of the status of the job to be added.
+   * @return a Long with the database identifier of the created job.
+   * @throws DbException
+   *           if any problem occurred accessing the database.
+   */
+  public Long createJobForTesting(Long jobTypeSeq, String description,
+      String auId, Long jobStatusSeq, String statusMessage) throws DbException {
+    if (log.isDebug2()) {
+      log.debug("jobTypeSeq = " + jobTypeSeq);
+      log.debug("description = " + description);
+      log.debug("auId = " + auId);
+      log.debug("jobStatusSeq = " + jobStatusSeq);
+      log.debug("statusMessage = " + statusMessage);
+    }
+
+    Connection conn = null;
+    Long jobSeq = null;
+
+    try {
+      // Get a connection to the database.
+      conn = dbManager.getConnection();
+
+      long creationTime = new Date().getTime();
+
+      jobSeq = jobManagerSql.addJob(conn, jobTypeSeq, description, auId,
+	  creationTime, creationTime + 1, creationTime + 2, jobStatusSeq,
+	  statusMessage);
+
+      boolean claimed = jobManagerSql.claimUnclaimedJob(conn, "Test", jobSeq);
+      if (log.isDebug3()) log.debug3("claimed? = " + claimed);
+
+      JobDbManager.commitOrRollback(conn, log);
+    } catch (Exception e) {
+      String message = "Cannot add job for auId = '" + auId + "'";
+      log.error(message, e);
+      throw e;
+    } finally {
+      JobDbManager.safeRollbackAndClose(conn);
+    }
+
+    if (log.isDebug2()) log.debug2("jobSeq = " + jobSeq);
+    return jobSeq;
   }
 }

@@ -39,6 +39,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.ConcurrentModificationException;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -152,7 +153,7 @@ public class JobManagerSql {
       + " where " + PRIORITY_COLUMN + " >= 0) as temp_job_table))";
 
   // Query to find a page of jobs.
-  private static final String FIND_OFFSET_JOBS_QUERY = "select "
+  private static final String FIND_NEXT_PAGE_JOBS_QUERY = "select "
       + JOB_SEQ_COLUMN
       + ", " + JOB_TYPE_SEQ_COLUMN
       + ", " + DESCRIPTION_COLUMN
@@ -165,8 +166,8 @@ public class JobManagerSql {
       + ", " + STATUS_MESSAGE_COLUMN
       + ", " + PRIORITY_COLUMN
       + " from " + JOB_TABLE
-      + " order by " + JOB_SEQ_COLUMN
-      + " offset ?";
+      + " where " + JOB_SEQ_COLUMN + " > ?"
+      + " order by " + JOB_SEQ_COLUMN;
 
   // Query to delete inactive jobs.
   private static final String DELETE_INACTIVE_JOBS_QUERY = DELETE_ALL_JOBS_QUERY
@@ -247,6 +248,17 @@ public class JobManagerSql {
       + " and " + JOB_STATUS_SEQ_COLUMN + " = ?"
       + " order by " + PRIORITY_COLUMN
       + ", " + JOB_SEQ_COLUMN;
+
+
+  // Query to update the job queue truncation timestamp.
+  private static final String UPDATE_TRUNCATION_TIMESTAMP_QUERY = "update "
+      + JOB_METADATA_TABLE
+      + " set " + TRUNCATION_TIME_COLUMN + " = ?";
+
+  // Query to get the job queue truncation timestamp.
+  private static final String GET_TRUNCATION_TIMESTAMP_QUERY = "select "
+      + TRUNCATION_TIME_COLUMN
+      + " from " + JOB_METADATA_TABLE;
 
   private final JobDbManager dbManager;
   private final Map<String, Long> jobStatusSeqByName;
@@ -707,16 +719,25 @@ public class JobManagerSql {
    * 
    * @param conn
    *          A Connection with the database connection to be used.
+   * @param jobTypeSeq
+   *          A Long with the database identifier of the type of the job to be
+   *          added.
+   * @param description
+   *          A String with the description of the job to be added.
    * @param auId
    *          A String with the Archival Unit identifier.
-   * @return a Long with the database identifier of the created metadata
-   *         extraction job.
+   * @param jobStatusSeq
+   *          A Long with the database identifier of the status of the job to be
+   *          added.
+   * @param statusMessage
+   *          A String with the message of the status of the job to be added.
+   * @return a Long with the database identifier of the created job.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
-  private Long addJob(Connection conn, Long jobTypeSeq, String description,
-      String auId, long creationTime, Long startTime, Long endTime,
-      Long jobStatusSeq, String statusMessage) throws DbException {
+  Long addJob(Connection conn, Long jobTypeSeq, String description, String auId,
+      long creationTime, Long startTime, Long endTime, Long jobStatusSeq,
+      String statusMessage) throws DbException {
     final String DEBUG_HEADER = "addJob(): ";
     if (log.isDebug2()) {
       log.debug(DEBUG_HEADER + "jobTypeSeq = " + jobTypeSeq);
@@ -1028,32 +1049,63 @@ public class JobManagerSql {
   }
 
   /**
-   * Provides a list of existing jobs.
+   * Provides a list of all currently active jobs or a pageful of the list
+   * defined by the continuation token and size.
    * 
-   * @param page
-   *          An Integer with the index of the page to be returned.
    * @param limit
    *          An Integer with the maximum number of jobs to be returned.
-   * @return a List<Job> with the existing jobs.
+   * @param continuationToken
+   *          A JobContinuationToken with the pagination token, if any.
+   * @return a JobPage with the requested list of jobs.
+   * @throws ConcurrentModificationException
+   *           if there is a conflict between the pagination request and the
+   *           current content in the database.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
-  List<JobAuStatus> getJobs(Integer page, Integer limit) throws DbException {
+  JobPage getJobs(Integer limit, JobContinuationToken continuationToken)
+      throws DbException {
     final String DEBUG_HEADER = "getJobs(): ";
     if (log.isDebug2()) {
-      log.debug(DEBUG_HEADER + "page = " + page);
-      log.debug(DEBUG_HEADER + "limit = " + limit);
+      log.debug2(DEBUG_HEADER + "limit = " + limit);
+      log.debug2(DEBUG_HEADER + "continuationToken = " + continuationToken);
     }
 
-    List<JobAuStatus> result = null;
+    JobPage result = null;
     Connection conn = null;
 
     try {
       // Get a connection to the database.
       conn = dbManager.getConnection();
 
+      // Get the job queue last truncation timestamp.
+      long truncationTime = getJobQueueTruncationTimestamp(conn);
+      if (log.isDebug3())
+	log.debug3(DEBUG_HEADER + "truncationTime = " + truncationTime);
+
+      // Get the continuation token members, if any.
+      Long queueTruncationTimestamp = null;
+      Long lastJobSeq = null;
+
+      if (continuationToken != null) {
+	queueTruncationTimestamp =
+	    continuationToken.getQueueTruncationTimestamp();
+	lastJobSeq = continuationToken.getLastJobSeq();
+      }
+
+      // Evaluate the pagination consistency of the request.
+      if (queueTruncationTimestamp != null
+	  && queueTruncationTimestamp.longValue() != truncationTime) {
+	String message = "Incompatible pagination request: request timestamp: "
+	    + queueTruncationTimestamp
+	    + ", current timestamp:" + " " + truncationTime;
+	log.warning(message);
+	throw new ConcurrentModificationException("Incompatible pagination for "
+	    + "jobs: Content has changed since previous request");
+      }
+
       // Get the jobs.
-      result = getJobs(conn, page, limit);
+      result = getJobs(conn, truncationTime, limit, lastJobSeq);
     } finally {
       JobDbManager.safeRollbackAndClose(conn);
     }
@@ -1063,62 +1115,87 @@ public class JobManagerSql {
   }
 
   /**
-   * Provides a list of existing jobs.
+   * Provides a list of all currently active jobs or a pageful of the list
+   * defined by the continuation token and size.
    * 
    * @param conn
    *          A Connection with the database connection to be used.
-   * @param page
-   *          An Integer with the index of the page to be returned.
+   * @param queueTruncationTimestamp
+   *          A Long with the job queue last truncation timestamp.
    * @param limit
    *          An Integer with the maximum number of jobs to be returned.
-   * @return a List<Job> with the existing jobs.
+   * @param lastJobSeq
+   *          A Long with the last job database identifier.
+   * @return a JobPage with the requested list of jobs.
+   * @throws ConcurrentModificationException
+   *           if there is a conflict between the pagination request and the
+   *           current content in the database.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
-  private List<JobAuStatus> getJobs(Connection conn, Integer page,
-      Integer limit) throws DbException {
+  private JobPage getJobs(Connection conn, Long queueTruncationTimestamp,
+      Integer limit, Long lastJobSeq) throws DbException {
     final String DEBUG_HEADER = "getJobs(): ";
     if (log.isDebug2()) {
-      log.debug(DEBUG_HEADER + "page = " + page);
-      log.debug(DEBUG_HEADER + "limit = " + limit);
+      log.debug2(DEBUG_HEADER
+	  + "queueTruncationTimestamp = " + queueTruncationTimestamp);
+      log.debug2(DEBUG_HEADER + "limit = " + limit);
+      log.debug2(DEBUG_HEADER + "lastJobSeq = " + lastJobSeq);
     }
 
-    List<JobAuStatus> jobs = new ArrayList<JobAuStatus>();
-    String sql = FIND_OFFSET_JOBS_QUERY;
+    JobPage result = new JobPage();
+    List<Job> jobs = new ArrayList<Job>();
+    result.setJobs(jobs);
 
-    if (dbManager.isTypeDerby()) {
-      sql = sql + " rows";
-    }
-
-    if (log.isDebug3()) log.debug3(DEBUG_HEADER + "sql = " + sql);
-
-    int offset = 0;
-
-    if (page != null && page.intValue() > 0
-	&& limit != null && limit.intValue() >= 0) {
-      offset = (page - 1) * limit;
-    }
-
-    if (log.isDebug3()) log.debug3(DEBUG_HEADER + "offset = " + offset);
+    Job job;
+    String sql = FIND_NEXT_PAGE_JOBS_QUERY;
 
     PreparedStatement findJobs = dbManager.prepareStatement(conn, sql);
     ResultSet resultSet = null;
-    JobAuStatus job;
+
+    // Indication of whether there are more results that may be requested in a
+    // subsequent pagination request.
+    boolean hasMore = false;
 
     try {
-      // Get the jobs.
-      findJobs.setInt(1, offset);
-
-      if (limit != null && limit.intValue() >= 0) {
-	findJobs.setMaxRows(limit);
+      // Handle the first page of requested results.
+      if (lastJobSeq == null) {
+	findJobs.setLong(1, -1);
+      } else {
+	findJobs.setLong(1, lastJobSeq);
       }
+
+      boolean isPaginating = false;
+
+      // Determine whether this is a paginating request.
+      if (limit != null && limit.intValue() > 0) {
+	// Yes.
+	isPaginating = true;
+
+	// Request one more row than needed, to determine whether there will be
+	// additional results besides this requested page.
+	findJobs.setMaxRows(limit + 1);
+      }
+
+      if (log.isDebug3())
+	log.debug3(DEBUG_HEADER + "isPaginating = " + isPaginating);
 
       resultSet = dbManager.executeQuery(findJobs);
 
       // Loop through the results.
       while (resultSet.next()) {
+	// Check whether the full requested page has already been obtained.
+	if (isPaginating && jobs.size() == limit) {
+	  // Yes: There are more results after this page.
+	  hasMore = true;
+	  if (log.isDebug3()) log.debug3(DEBUG_HEADER + "hasMore = " + hasMore);
+
+	  // Do not process the additional row.
+	  break;
+	}
+
 	// Get the next job.
-	job = getJobFromResultSet(resultSet);
+	job = new Job(getJobFromResultSet(resultSet));
 	if (log.isDebug3()) log.debug3(DEBUG_HEADER + "Found job " + job);
 
 	// Add it to the results.
@@ -1128,25 +1205,35 @@ public class JobManagerSql {
       String message = "Cannot find jobs";
       log.error(message, sqle);
       log.error("SQL = '" + sql + "'.");
-      log.error("page = " + page);
       log.error("limit = " + limit);
-      log.error("offset = " + offset);
+      log.error("lastJobSeq = " + lastJobSeq);
       throw new DbException(message, sqle);
     } catch (DbException dbe) {
       String message = "Cannot find jobs";
       log.error(message, dbe);
       log.error("SQL = '" + sql + "'.");
-      log.error("page = " + page);
       log.error("limit = " + limit);
-      log.error("offset = " + offset);
+      log.error("lastJobSeq = " + lastJobSeq);
       throw dbe;
     } finally {
       JobDbManager.safeCloseResultSet(resultSet);
       JobDbManager.safeCloseStatement(findJobs);
     }
 
-    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "jobs = " + jobs);
-    return jobs;
+    // Check whether there are additional items after this page.
+    if (hasMore) {
+      // Yes: Build and save the response continuation token.
+      JobContinuationToken continuationToken = new JobContinuationToken(
+	  queueTruncationTimestamp,
+	  Long.valueOf(jobs.get(jobs.size()-1).getId()));
+      if (log.isDebug3()) log.debug3(DEBUG_HEADER
+	  + "continuationToken = " + continuationToken);
+
+      result.setContinuationToken(continuationToken);
+    }
+
+    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
+    return result;
   }
 
   /**
@@ -1168,6 +1255,7 @@ public class JobManagerSql {
       conn = dbManager.getConnection();
 
       deletedCount = deleteInactiveJobs(conn);
+      updateJobQueueTruncationTimestamp(conn);
       JobDbManager.commitOrRollback(conn, log);
     } finally {
       JobDbManager.safeRollbackAndClose(conn);
@@ -1620,7 +1708,7 @@ public class JobManagerSql {
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
-  private boolean claimUnclaimedJob(Connection conn, String owner, Long jobSeq)
+  boolean claimUnclaimedJob(Connection conn, String owner, Long jobSeq)
       throws DbException {
     final String DEBUG_HEADER = "claimUnclaimedJob(): ";
     if (log.isDebug2()) {
@@ -2068,5 +2156,88 @@ public class JobManagerSql {
     if (log.isDebug2()) log.debug2(DEBUG_HEADER
 	+ "notStartedJobs.size() = " + notStartedJobs.size());
     return notStartedJobs;
+  }
+
+  /**
+   * Updates the job queue truncation timestamp.
+   * 
+   * @param conn
+   *          A Connection with the database connection to be used.
+   * @throws DbException
+   *           if any problem occurred accessing the database.
+   */
+  private void updateJobQueueTruncationTimestamp(Connection conn)
+      throws DbException {
+    log.debug2("Invoked");
+
+    int updatedCount = -1;
+
+    PreparedStatement updateTruncationTimestamp =
+	dbManager.prepareStatement(conn, UPDATE_TRUNCATION_TIMESTAMP_QUERY);
+
+    try {
+      updateTruncationTimestamp.setLong(1, new Date().getTime());
+
+      updatedCount = dbManager.executeUpdate(updateTruncationTimestamp);
+      if (log.isDebug3()) log.debug3("updatedCount = " + updatedCount);
+    } catch (SQLException sqle) {
+      String message = "Cannot update job queue truncation timestamp";
+      log.error(message, sqle);
+      log.error("SQL = '" + UPDATE_TRUNCATION_TIMESTAMP_QUERY + "'.");
+      throw new DbException(message, sqle);
+    } catch (DbException dbe) {
+      String message = "Cannot update job queue truncation timestamp";
+      log.error(message, dbe);
+      log.error("SQL = '" + UPDATE_TRUNCATION_TIMESTAMP_QUERY + "'.");
+      throw dbe;
+    } finally {
+      JobDbManager.safeCloseStatement(updateTruncationTimestamp);
+    }
+
+    log.debug2("Done");
+  }
+
+  /**
+   * Provides the job queue truncation timestamp.
+   * 
+   * @param conn
+   *          A Connection with the database connection to be used.
+   * @return a long with the job queue truncation timestamp.
+   * @throws DbException
+   *           if any problem occurred accessing the database.
+   */
+  long getJobQueueTruncationTimestamp(Connection conn) throws DbException {
+    log.debug2("Invoked");
+    long timestamp = -1;
+
+    PreparedStatement stmt = null;
+    ResultSet resultSet = null;
+
+    try {
+      // Prepare the query.
+      stmt = dbManager.prepareStatement(conn, GET_TRUNCATION_TIMESTAMP_QUERY);
+
+      // Make the query.
+      resultSet = dbManager.executeQuery(stmt);
+      if (resultSet.next()) {
+	timestamp = resultSet.getLong(TRUNCATION_TIME_COLUMN);
+      }
+    } catch (SQLException sqle) {
+      String message = "Cannot get the queue truncation timestamp";
+      log.error(message, sqle);
+      log.error("SQL = '" + GET_TRUNCATION_TIMESTAMP_QUERY + "'.");
+      throw new DbException(message, sqle);
+    } catch (DbException dbe) {
+      String message = "Cannot get the queue truncation timestamp";
+      log.error(message, dbe);
+      log.error("SQL = '" + GET_TRUNCATION_TIMESTAMP_QUERY + "'.");
+      throw dbe;
+    } finally {
+      JobDbManager.safeCloseResultSet(resultSet);
+      JobDbManager.safeCloseStatement(stmt);
+    }
+
+    if (log.isDebug2()) log.debug2("timestamp = " + timestamp);
+    return timestamp;
   }
 }
