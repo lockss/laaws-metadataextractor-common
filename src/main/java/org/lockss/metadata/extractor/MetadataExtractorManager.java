@@ -368,6 +368,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    */
   @Override
   public void startService() {
+    super.startService();
     final String DEBUG_HEADER = "startService(): ";
     log.debug(DEBUG_HEADER + "Starting MetadataExtractorManager");
 
