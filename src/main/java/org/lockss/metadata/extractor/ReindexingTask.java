@@ -1,6 +1,6 @@
 /*
 
-Copyright (c) 2013-2018 Board of Trustees of Leland Stanford Jr. University,
+Copyright (c) 2013-2019 Board of Trustees of Leland Stanford Jr. University,
 all rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -830,17 +830,19 @@ public class ReindexingTask extends StepTask {
         	  + "' failed to extract any items.");
             }
 
+            long creationTime = AuUtil.getAuCreationTime(au);
+
             // Check whether there is any metadata to record.
             if (mditr.hasNext()) {
               // Yes: Write the AU metadata to the database.
               new AuMetadataRecorder((ReindexingTask) task, mdxManager, au)
-              .recordMetadata(conn, mditr);
+              .recordMetadata(conn, mditr, creationTime);
               
               pokeWDog();
             } else {
               // No: Record the extraction in the database.
               new AuMetadataRecorder((ReindexingTask) task, mdxManager, au)
-              .recordMetadataExtraction(conn);
+              .recordMetadataExtraction(conn, creationTime);
             }
 
             // Remove the AU just re-indexed from the list of AUs pending to be

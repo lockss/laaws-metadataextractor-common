@@ -1,6 +1,6 @@
 /*
 
-Copyright (c) 2013-2018 Board of Trustees of Leland Stanford Jr. University,
+Copyright (c) 2013-2019 Board of Trustees of Leland Stanford Jr. University,
 all rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -64,6 +64,7 @@ import org.lockss.metadata.extractor.job.JobManager;
 import org.lockss.plugin.ArchivalUnit;
 import org.lockss.plugin.ArticleFiles;
 import org.lockss.plugin.ArticleIteratorFactory;
+import org.lockss.plugin.AuUtil;
 import org.lockss.plugin.Plugin;
 import org.lockss.plugin.PluginManager;
 import org.lockss.plugin.PluginTestUtil;
@@ -83,6 +84,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
   static Logger log = Logger.getLogger(TestAuMetadataRecorder.class);
 
   private SimulatedArchivalUnit sau0;
+  private long sau0CreationTime;
   private MetadataManager mdManager;
   private MetadataExtractorManager mdxManager;
   private MetadataDbManager dbManager;
@@ -110,6 +112,8 @@ public class TestAuMetadataRecorder extends LockssTestCase {
 
     sau0 = PluginTestUtil.createAndStartSimAu(MySimulatedPlugin0.class,
                                               simAuConfig(tempDirPath + "/0"));
+
+    sau0CreationTime = AuUtil.getAuCreationTime(sau0);
 
     dbManager = getTestDbManager(tempDirPath);
 
@@ -224,7 +228,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
 
       // Write the AU metadata to the database.
       new AuMetadataRecorder(task, mdxManager, sau0)
-          .recordMetadata(conn, metadata.iterator());
+          .recordMetadata(conn, metadata.iterator(), sau0CreationTime);
 
       // Check that 1 publisher exists.
       assertEquals(1, countPublishers(conn) - initialPublisherCount);
@@ -252,7 +256,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
 
       // Write the AU metadata to the database.
       new AuMetadataRecorder(task, mdxManager, sau0)
-          .recordMetadata(conn, metadata.iterator());
+          .recordMetadata(conn, metadata.iterator(), sau0CreationTime);
       
       // Check that 1 publisher exists.
       assertEquals(1, countPublishers(conn) - initialPublisherCount);
@@ -362,7 +366,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
 
       // Write the AU metadata to the database.
       new AuMetadataRecorder(task, mdxManager, sau0)
-	  .recordMetadata(conn, metadata.iterator());
+	  .recordMetadata(conn, metadata.iterator(), sau0CreationTime);
 
       // Check that 1 publisher exists.
       assertEquals(1, countPublishers(conn) - initialPublisherCount);
@@ -389,13 +393,14 @@ public class TestAuMetadataRecorder extends LockssTestCase {
 
         // Write the AU metadata to the database.
         new AuMetadataRecorder(task, mdxManager, sau0)
-            .recordMetadata(conn, metadata.iterator());
+            .recordMetadata(conn, metadata.iterator(), sau0CreationTime);
 
         // Check that 1 publisher exists.
         assertEquals(1, countPublishers(conn) - initialPublisherCount);
 
         // Check that nTitles publications exists.
-        assertEquals(nTitles, countPublications(conn) - initialPublicationCount);
+        assertEquals(nTitles,
+            countPublications(conn) - initialPublicationCount);
 
         // check that there are now no unknown titles
         assertEquals(0, countUnknownTitles(conn) - initialUnknownTitlesCount);
@@ -493,7 +498,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
 
       // Write the AU metadata to the database.
       new AuMetadataRecorder(task, mdxManager, sau0)
-          .recordMetadata(conn, metadata.iterator());
+          .recordMetadata(conn, metadata.iterator(), sau0CreationTime);
 
       // Check that 1 publisher exists.
       assertEquals(1, countPublishers(conn) - initialPublisherCount);
@@ -530,7 +535,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
 
       // Write the AU metadata to the database.
       new AuMetadataRecorder(task, mdxManager, sau0)
-          .recordMetadata(conn, metadata.iterator());
+          .recordMetadata(conn, metadata.iterator(), sau0CreationTime);
       
       // Check that 1 publisher exists.
       assertEquals(1, countPublishers(conn) - initialPublisherCount);
@@ -649,7 +654,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
 
       // Write the AU metadata to the database.
       new AuMetadataRecorder(task, mdxManager, sau0)
-	  .recordMetadata(conn, metadata.iterator());
+	  .recordMetadata(conn, metadata.iterator(), sau0CreationTime);
 
       // Check that 1 publisher exists.
       assertEquals(1, countPublishers(conn) - initialPublisherCount);
@@ -677,7 +682,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
 
       // Write the AU metadata to the database.
       new AuMetadataRecorder(task, mdxManager, sau0)
-	  .recordMetadata(conn, metadata.iterator());
+	  .recordMetadata(conn, metadata.iterator(), sau0CreationTime);
 
       // Check that 1 publisher exists.
       assertEquals(1, countPublishers(conn) - initialPublisherCount);
@@ -739,7 +744,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
 
       // Write the AU metadata to the database.
       new AuMetadataRecorder(task, mdxManager, sau0)
-	  .recordMetadata(conn, metadata.iterator());
+	  .recordMetadata(conn, metadata.iterator(), sau0CreationTime);
 
       // Check that 1 publisher exists.
       assertEquals(1, countPublishers(conn) - initialPublisherCount);
@@ -760,7 +765,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
 
       // Write the AU metadata to the database.
       new AuMetadataRecorder(task, mdxManager, sau0)
-	  .recordMetadata(conn, metadata.iterator());
+	  .recordMetadata(conn, metadata.iterator(), sau0CreationTime);
 
       // Check that 1 publisher exists.
       assertEquals(1, countPublishers(conn) - initialPublisherCount);
@@ -821,7 +826,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
 
       // Write the AU metadata to the database.
       new AuMetadataRecorder(task, mdxManager, sau0)
-	  .recordMetadata(conn, metadata.iterator());
+	  .recordMetadata(conn, metadata.iterator(), sau0CreationTime);
 
       // Check that 1 publisher exists.
       assertEquals(1, countPublishers(conn) - initialPublisherCount);
@@ -844,14 +849,15 @@ public class TestAuMetadataRecorder extends LockssTestCase {
 
       addJournalTypeAggregates(conn, publicationSeq, true, 2013, 1, 30, 20, 10);
 
-      mdxManager.getMetadataExtractorManagerSql().removeAu(conn, sau0.getAuId());
+      mdxManager.getMetadataExtractorManagerSql().removeAu(conn,
+	  sau0.getAuId());
 
       metadata =
 	  getJournalMetadata("Publisher", 1, 8, false, false, null, false);
 
       // Write the AU metadata to the database.
       new AuMetadataRecorder(task, mdxManager, sau0)
-	  .recordMetadata(conn, metadata.iterator());
+	  .recordMetadata(conn, metadata.iterator(), sau0CreationTime);
 
       // Check that 1 publisher exists.
       assertEquals(1, countPublishers(conn) - initialPublisherCount);
@@ -913,7 +919,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
 
       // Write the AU metadata to the database.
       new AuMetadataRecorder(task, mdxManager, sau0)
-	  .recordMetadata(conn, metadata.iterator());
+	  .recordMetadata(conn, metadata.iterator(), sau0CreationTime);
 
       // Check that 1 publisher exists.
       assertEquals(1, countPublishers(conn) - initialPublisherCount);
@@ -930,13 +936,14 @@ public class TestAuMetadataRecorder extends LockssTestCase {
       // Check that 0 archival unit problems exist.
       assertEquals(0, countAuProblems(conn) - initialProblemCount);
 
-      mdxManager.getMetadataExtractorManagerSql().removeAu(conn, sau0.getAuId());
+      mdxManager.getMetadataExtractorManagerSql().removeAu(conn,
+	  sau0.getAuId());
 
       metadata = getJournalMetadata(null, 1, 8, false, false, null, false);
 
       // Write the AU metadata to the database.
       new AuMetadataRecorder(task, mdxManager, sau0)
-	  .recordMetadata(conn, metadata.iterator());
+	  .recordMetadata(conn, metadata.iterator(), sau0CreationTime);
 
       // Check that 2 publisher exist.
       assertEquals(2, countPublishers(conn) - initialPublisherCount);
@@ -997,7 +1004,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
 
       // Write the AU metadata to the database.
       new AuMetadataRecorder(task, mdxManager, sau0)
-	  .recordMetadata(conn, metadata.iterator());
+	  .recordMetadata(conn, metadata.iterator(), sau0CreationTime);
 
       // Check that 1 publisher exist.
       assertEquals(1, countPublishers(conn) - initialPublisherCount);
@@ -1361,7 +1368,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
 
       // Write the AU metadata to the database.
       new AuMetadataRecorder(task, mdxManager, sau0)
-          .recordMetadata(conn, metadata.iterator());
+          .recordMetadata(conn, metadata.iterator(), sau0CreationTime);
 
       // Check that as many publishers as publications exist.
       assertEquals(nTitles, countPublishers(conn) - initialPublisherCount);
@@ -1552,7 +1559,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
 	  MD_ITEM_TYPE_UNKNOWN_ARTICLE));
 
       new AuMetadataRecorder(null, mdxManager, sau0).storeMetadata(conn,
-	  amBuffer.iterator().next());
+	  amBuffer.iterator().next(), sau0CreationTime);
 
       assertEquals(0, countItemsByTypeName(conn, MD_ITEM_TYPE_BOOK_SERIES));
       assertEquals(1, countItemsByTypeName(conn, MD_ITEM_TYPE_BOOK));
@@ -1637,7 +1644,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
       assertEquals(0, countItemsByTypeName(conn, MD_ITEM_TYPE_FILE));
 
       new AuMetadataRecorder(null, mdxManager, sau0).storeMetadata(conn,
-	  amBuffer.iterator().next());
+	  amBuffer.iterator().next(), sau0CreationTime);
 
       assertEquals(0, countItemsByTypeName(conn, MD_ITEM_TYPE_BOOK_SERIES));
       assertEquals(1, countItemsByTypeName(conn, MD_ITEM_TYPE_BOOK));
