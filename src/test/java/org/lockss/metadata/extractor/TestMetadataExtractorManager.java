@@ -79,7 +79,6 @@ public class TestMetadataExtractorManager extends LockssTestCase {
   public void setUp() throws Exception {
     super.setUp();
     String tempDirPath = setUpDiskSpace();
-    useOldRepo();
 
     ConfigurationUtil.addFromArgs(PARAM_INDEXING_ENABLED, "true");
 
