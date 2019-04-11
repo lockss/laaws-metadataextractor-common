@@ -486,7 +486,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 	    .getList(PARAM_INDEX_PRIORITY_AUID_MAP,
 		     DEFAULT_INDEX_PRIORITY_AUID_MAP)));
 
-	if (isInited() && !onDemandMetadataExtractionOnly) {
+	if (isAppInited() && !onDemandMetadataExtractionOnly) {
 	  processAbortPriorities();
 	  // process queued AUs in case any are newly eligible
 	  startReindexing();
