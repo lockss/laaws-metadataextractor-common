@@ -101,6 +101,7 @@ public class JobTask implements Runnable {
 
     // Infinite loop.
     while (jobSeq == null) {
+      boolean doSleep = true;		// sleep if no job or error
       try {
 	// Claim the next job.
 	jobSeq = jobManager.claimNextJob(taskName);
@@ -110,9 +111,7 @@ public class JobTask implements Runnable {
 	  // Yes: Process it.
 	  taskName = baseTaskName + " - jobSeq=" + jobSeq;
 	  processJob(jobSeq);
-	} else {
-	  // No: Wait before the next attempt.
-	  sleep(DEBUG_HEADER);
+	  doSleep = false;
 	}
       } catch (Exception e) {
 	log.error("Exception caught claiming or processing job: ", e);
@@ -121,6 +120,9 @@ public class JobTask implements Runnable {
 	stepTask = null;
 	taskName = baseTaskName;
 	isJobFinished = false;
+      }
+      if (doSleep) {
+	sleep(DEBUG_HEADER);
       }
     }
   }
