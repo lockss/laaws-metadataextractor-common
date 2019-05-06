@@ -138,10 +138,6 @@ public class ReindexingTask extends StepTask {
 
   private boolean cancelled = false;
 
-  // The indication of whether the content of an archival unit should be
-  // obtained from a web service instead of the repository.
-  private boolean isAuContentFromWs = false;
-
   /**
    * Constructor.
    * 
@@ -165,16 +161,7 @@ public class ReindexingTask extends StepTask {
     this.auName = au.getName();
     this.auId = au.getAuId();
 
-    isAuContentFromWs =
-	LockssDaemon.getLockssDaemon().getPluginManager().isAuContentFromWs();
-    if (log.isDebug3())
-      log.debug3(DEBUG_HEADER + "isAuContentFromWs = " + isAuContentFromWs);
-
-    if (isAuContentFromWs) {
-      this.auNoSubstance = false;
-    } else {
-      this.auNoSubstance = AuUtil.getAuState(au).hasNoSubstance();
-    }
+    this.auNoSubstance = AuUtil.getAuState(au).hasNoSubstance();
 
     dbManager = LockssDaemon.getLockssDaemon().getMetadataDbManager();
     mdxManager =
@@ -473,16 +460,13 @@ public class ReindexingTask extends StepTask {
 
       md.putRaw(MetadataField.FIELD_FEATURED_URL_MAP.getKey(), roles);
 
-      // Check whether the the archival unit content must be obtained from the
-      // repository.
-      if (!isAuContentFromWs) {
-	// Yes: Get the earliest fetch time of the metadata items URLs.
-	long fetchTime = AuUtil.getAuUrlsEarliestFetchTime(au, roles.values());
-	if (log.isDebug3())
-	  log.debug3(DEBUG_HEADER + "fetchTime = " + fetchTime);
+      // Get the earliest fetch time of the metadata items URLs.
+      // XXXREPO this may be very slow - it fetches every Artifact in AU
+      long fetchTime = AuUtil.getAuUrlsEarliestFetchTime(au, roles.values());
+      if (log.isDebug3())
+	log.debug3(DEBUG_HEADER + "fetchTime = " + fetchTime);
 
-	md.put(MetadataField.FIELD_FETCH_TIME, String.valueOf(fetchTime));
-      }
+      md.put(MetadataField.FIELD_FETCH_TIME, String.valueOf(fetchTime));
 
       try {
         validateDataAgainstTdb(new ArticleMetadataInfo(md), au);

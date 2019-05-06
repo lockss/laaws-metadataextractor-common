@@ -2647,17 +2647,6 @@ public class MetadataExtractorManager extends BaseLockssManager implements
       throw new IllegalArgumentException(message);
     }
 
-    // No: Check whether the content comes from web services.
-    boolean isAuContentFromWs = pluginMgr.isAuContentFromWs();
-    if (log.isDebug3())
-      log.debug3(DEBUG_HEADER + "isAuContentFromWs = " + isAuContentFromWs);
-
-    if (isAuContentFromWs) {
-      // Yes: Add the Archival Unit title database to the configuration, if
-      // necessary.
-      configMgr.addTdbAu(auId, au.getPlugin());
-    }
-
     // Schedule the pending AU.
     if (log.isDebug3()) log.debug3(DEBUG_HEADER
 	+ "Creating the reindexing task for AU: " + au.getName());
@@ -2700,17 +2689,6 @@ public class MetadataExtractorManager extends BaseLockssManager implements
       String message = "Cannot find Archival Unit for auId '" + auId + "'";
       log.error(message);
       throw new IllegalArgumentException(message);
-    }
-
-    // No: Check whether the content comes from web services.
-    boolean isAuContentFromWs = pluginMgr.isAuContentFromWs();
-    if (log.isDebug3())
-      log.debug3(DEBUG_HEADER + "isAuContentFromWs = " + isAuContentFromWs);
-
-    if (isAuContentFromWs) {
-      // Yes: Add the Archival Unit title database to the configuration, if
-      // necessary.
-      configMgr.addTdbAu(auId, au.getPlugin());
     }
 
     // Schedule the removal of the AU.
