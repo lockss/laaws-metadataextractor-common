@@ -55,6 +55,7 @@ public class TestArticleMetadataBuffer extends LockssTestCase {
   }
 
   public void tearDown() throws Exception {
+    amBuffer.close();
     super.tearDown();
   }
 

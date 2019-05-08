@@ -44,15 +44,17 @@ import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Set;
 import org.lockss.daemon.PublicationDate;
 import org.lockss.extractor.ArticleMetadata;
 import org.lockss.extractor.MetadataField;
-import org.lockss.laaws.mdq.model.ItemMetadata;
+import org.lockss.metadata.ItemMetadata;
 import org.lockss.metadata.MetadataManager;
 import org.lockss.util.CloseCallbackInputStream.DeleteFileOnCloseInputStream;
 import org.lockss.util.FileUtil;
@@ -113,6 +115,7 @@ class ArticleMetadataBuffer {
     String itemNumber;
     String proprietaryIdentifier;
     String fetchTime;
+    Map<String, String> mdMap;
 
     /**
      * Extract the information from the ArticleMetadata
@@ -170,7 +173,9 @@ class ArticleMetadataBuffer {
       proprietaryIdentifier =
           md.get(MetadataField.FIELD_PROPRIETARY_IDENTIFIER);
       fetchTime = md.get(MetadataField.FIELD_FETCH_TIME);
-      
+      mdMap = md.getRawMap(MetadataField.FIELD_MD_MAP);
+      if (log.isDebug3()) log.debug3("mdMap = " + mdMap);
+
       // get publication type from metadata or infer it if not set
       publicationType = md.get(MetadataField.FIELD_PUBLICATION_TYPE);
       if (StringUtil.isNullString(publicationType)) {
@@ -193,7 +198,7 @@ class ArticleMetadataBuffer {
         if (MetadataField.PUBLICATION_TYPE_BOOK.equals(publicationType)
             || MetadataField.PUBLICATION_TYPE_BOOKSERIES.equals(publicationType)
            ) {
-          if (StringUtil.isNullString(startPage)
+          if (!StringUtil.isNullString(startPage)
               || !StringUtil.isNullString(endPage)
               || !StringUtil.isNullString(itemNumber)) {
             // assume book chapter if startPage, endPage, or itemNumber present
@@ -210,7 +215,20 @@ class ArticleMetadataBuffer {
             equals(publicationType)) {
           // Assume article for proceedings publication.
           articleType = MetadataField.ARTICLE_TYPE_PROCEEDINGSARTICLE;          
+        } else if (MetadataField.PUBLICATION_TYPE_FILE.
+            equals(publicationType)) {
+          // Assume article for file publication.
+          articleType = MetadataField.ARTICLE_TYPE_FILE;          
         }
+      } else if (MetadataField.ARTICLE_TYPE_FILE.equals(articleType)
+	  && StringUtil.isNullString(publicationType)) {
+        publicationType = MetadataField.PUBLICATION_TYPE_FILE;
+      }
+
+      if (StringUtil.isNullString(publicationTitle)
+	  && MetadataField.PUBLICATION_TYPE_FILE.equals(publicationType)
+	  && StringUtil.isNullString(publisher)) {
+	publicationTitle = "File from " + publisher;
       }
     }
     
@@ -253,6 +271,7 @@ class ArticleMetadataBuffer {
       ItemMetadata item = new ItemMetadata();
 
       Map<String, String> scalarMap = item.getScalarMap();
+      Map<String, Set<String>> setMap = item.getSetMap();
       Map<String, List<String>> listMap = item.getListMap();
       Map<String, Map<String, String>> mapMap = item.getMapMap();
 
@@ -348,7 +367,7 @@ class ArticleMetadataBuffer {
       }
 
       if (keywords != null && keywords.size() > 0) {
-        listMap.put(KEYWORD_COLUMN, new ArrayList<String>(keywords));
+        setMap.put(KEYWORD_COLUMN, new HashSet<String>(keywords));
       }
 
       if (coverage != null) {
@@ -360,13 +379,19 @@ class ArticleMetadataBuffer {
       }
 
       if (proprietaryIdentifier != null) {
-        List<String> pis = new ArrayList<String>();
-        listMap.put(PROPRIETARY_ID_COLUMN, pis);
+        Set<String> pis = new HashSet<String>();
+        setMap.put(PROPRIETARY_ID_COLUMN, pis);
         pis.add(proprietaryIdentifier);
       }
 
       if (fetchTime != null) {
         scalarMap.put(FETCH_TIME_COLUMN, fetchTime);
+      }
+
+      Map<String, String> metadataMap = mdMap;
+
+      if (metadataMap.size() > 0) {
+        mapMap.put(MD_VALUE_COLUMN, metadataMap);
       }
 
       if (log.isDebug2()) log.debug2(DEBUG_HEADER + "item = " + item);
@@ -407,7 +432,8 @@ class ArticleMetadataBuffer {
           + ", coverage=" + coverage
           + ", itemNumber=" + itemNumber
           + ", proprietaryIdentifier=" + proprietaryIdentifier
-          + ", fetchTime=" + fetchTime + "]";
+          + ", fetchTime=" + fetchTime
+          + ", mdMap=" + mdMap + "]";
     }
   }
 
@@ -522,6 +548,8 @@ class ArticleMetadataBuffer {
     IOUtil.safeClose(instream);
     outstream = null;
     instream = null;
+    // but delete the file anyway in case it wasn't read (happens in tests)
+    FileUtil.safeDeleteFile(collectedMetadataFile);
     collectedMetadataFile = null;
   }
 }

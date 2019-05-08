@@ -1,6 +1,6 @@
 /*
 
-Copyright (c) 2013-2018 Board of Trustees of Leland Stanford Jr. University,
+Copyright (c) 2013-2019 Board of Trustees of Leland Stanford Jr. University,
 all rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -48,7 +48,9 @@ import org.lockss.metadata.extractor.ArticleMetadataBuffer.ArticleMetadataInfo;
 import org.lockss.metadata.extractor.MetadataExtractorManager.ReindexingStatus;
 import org.lockss.plugin.*;
 import org.lockss.scheduler.*;
+import org.lockss.util.time.TimeBase;
 import org.lockss.util.*;
+import org.lockss.util.os.PlatformUtil;
 
 /**
  * Implements a reindexing task that extracts metadata from all the articles in
@@ -136,10 +138,6 @@ public class ReindexingTask extends StepTask {
 
   private boolean cancelled = false;
 
-  // The indication of whether the content of an archival unit should be
-  // obtained from a web service instead of the repository.
-  private boolean isAuContentFromWs = false;
-
   /**
    * Constructor.
    * 
@@ -163,16 +161,7 @@ public class ReindexingTask extends StepTask {
     this.auName = au.getName();
     this.auId = au.getAuId();
 
-    isAuContentFromWs =
-	LockssDaemon.getLockssDaemon().getPluginManager().isAuContentFromWs();
-    if (log.isDebug3())
-      log.debug3(DEBUG_HEADER + "isAuContentFromWs = " + isAuContentFromWs);
-
-    if (isAuContentFromWs) {
-      this.auNoSubstance = false;
-    } else {
-      this.auNoSubstance = AuUtil.getAuState(au).hasNoSubstance();
-    }
+    this.auNoSubstance = AuUtil.getAuState(au).hasNoSubstance();
 
     dbManager = LockssDaemon.getLockssDaemon().getMetadataDbManager();
     mdxManager =
@@ -471,16 +460,13 @@ public class ReindexingTask extends StepTask {
 
       md.putRaw(MetadataField.FIELD_FEATURED_URL_MAP.getKey(), roles);
 
-      // Check whether the the archival unit content must be obtained from the
-      // repository.
-      if (!isAuContentFromWs) {
-	// Yes: Get the earliest fetch time of the metadata items URLs.
-	long fetchTime = AuUtil.getAuUrlsEarliestFetchTime(au, roles.values());
-	if (log.isDebug3())
-	  log.debug3(DEBUG_HEADER + "fetchTime = " + fetchTime);
+      // Get the earliest fetch time of the metadata items URLs.
+      // XXXREPO this may be very slow - it fetches every Artifact in AU
+      long fetchTime = AuUtil.getAuUrlsEarliestFetchTime(au, roles.values());
+      if (log.isDebug3())
+	log.debug3(DEBUG_HEADER + "fetchTime = " + fetchTime);
 
-	md.put(MetadataField.FIELD_FETCH_TIME, String.valueOf(fetchTime));
-      }
+      md.put(MetadataField.FIELD_FETCH_TIME, String.valueOf(fetchTime));
 
       try {
         validateDataAgainstTdb(new ArticleMetadataInfo(md), au);
@@ -772,19 +758,21 @@ public class ReindexingTask extends StepTask {
       if (log.isDebug2())
 	log.debug2(DEBUG_HEADER + "AU '" + auName + "': status = " + status);
 
-      if (mdxManager.isOnDemandMetadataExtractionOnly()) {
-	// Get any exception thrown while getting the archival unit URLs.
-	e = GetAuUrlsClient.getAndDeleteAnyException(auId);
-        if (log.isDebug3()) log.debug3(DEBUG_HEADER + "e = " + e);
+      // TK This has no effect as GetAuUrlsClient is no longer used.  Does
+      // it need to be changed to do something else?
+//       if (mdxManager.isOnDemandMetadataExtractionOnly()) {
+// 	// Get any exception thrown while getting the archival unit URLs.
+// 	e = GetAuUrlsClient.getAndDeleteAnyException(auId);
+//         if (log.isDebug3()) log.debug3(DEBUG_HEADER + "e = " + e);
 
-        // Check whether an exception was thrown.
-        if (e != null) {
-          // Yes: If the URLs could not be obtained successfully, the process
-          // failed. This could be because, for example, the AU was never
-          // crawled.
-          status = ReindexingStatus.Failed;
-	}
-      }
+//         // Check whether an exception was thrown.
+//         if (e != null) {
+//           // Yes: If the URLs could not be obtained successfully, the process
+//           // failed. This could be because, for example, the AU was never
+//           // crawled.
+//           status = ReindexingStatus.Failed;
+// 	}
+//       }
 
       if (status == ReindexingStatus.Running) {
         status = ReindexingStatus.Success;
@@ -826,17 +814,19 @@ public class ReindexingTask extends StepTask {
         	  + "' failed to extract any items.");
             }
 
+            long creationTime = AuUtil.getAuCreationTime(au);
+
             // Check whether there is any metadata to record.
             if (mditr.hasNext()) {
               // Yes: Write the AU metadata to the database.
               new AuMetadataRecorder((ReindexingTask) task, mdxManager, au)
-              .recordMetadata(conn, mditr);
+              .recordMetadata(conn, mditr, creationTime);
               
               pokeWDog();
             } else {
               // No: Record the extraction in the database.
               new AuMetadataRecorder((ReindexingTask) task, mdxManager, au)
-              .recordMetadataExtraction(conn);
+              .recordMetadataExtraction(conn, creationTime);
             }
 
             // Remove the AU just re-indexed from the list of AUs pending to be
@@ -895,15 +885,15 @@ public class ReindexingTask extends StepTask {
           // Fall through if SQL exception occurred during update.
         case Failed:
         case Rescheduled:
+          if (log.isDebug3()) log.debug3(DEBUG_HEADER
+              + "Reindexing task for AU '" + auName
+              + "' was unsuccessful: status = " + status);
+
+          mdxManager.addToFailedReindexingTasks(ReindexingTask.this);
+
           if (!mdxManager.isOnDemandMetadataExtractionOnly()) {
             // Reindexing not successful, so try again later if status indicates
             // the operation should be rescheduled.
-            if (log.isDebug3()) log.debug3(DEBUG_HEADER
-        	+ "Reindexing task for AU '" + auName
-        	+ "' was unsuccessful: status = " + status);
-
-            mdxManager.addToFailedReindexingTasks(ReindexingTask.this);
-
             try {
               // Get a connection to the database.
               conn = dbManager.getConnection();
@@ -968,11 +958,11 @@ public class ReindexingTask extends StepTask {
       articleMetadataInfoBuffer.close();
       articleMetadataInfoBuffer = null;
 
-      if (!mdxManager.isOnDemandMetadataExtractionOnly()) {
-	synchronized (mdxManager.activeReindexingTasks) {
-	  mdxManager.activeReindexingTasks.remove(au.getAuId());
-	  mdxManager.notifyFinishReindexingAu(au, status, task.getException());
+      synchronized (mdxManager.activeReindexingTasks) {
+	mdxManager.activeReindexingTasks.remove(au.getAuId());
+	mdxManager.notifyFinishReindexingAu(au, status, task.getException());
 
+	if (!mdxManager.isOnDemandMetadataExtractionOnly()) {
 	  try {
             // Get a connection to the database.
             conn = dbManager.getConnection();
@@ -988,8 +978,6 @@ public class ReindexingTask extends StepTask {
             MetadataDbManager.safeRollbackAndClose(conn);
           }
         }
-      } else {
-	mdxManager.notifyFinishReindexingAu(au, status, task.getException());
       }
     }
   }

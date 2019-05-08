@@ -54,7 +54,7 @@ import org.lockss.state.ArchivalUnitStatus;
 import org.lockss.util.CatalogueOrderComparator;
 import org.lockss.util.ListUtil;
 import org.lockss.util.Logger;
-import org.lockss.util.TimeBase;
+import org.lockss.util.time.TimeBase;
 
 /**
  * This class displays the MetadataManager status for the current
@@ -317,7 +317,7 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
     List<StatusTable.SummaryInfo> res =
 	new ArrayList<StatusTable.SummaryInfo>();
     long activeOps = mdxMgr.getActiveReindexingCount();
-    long pendingOps = mdxMgr.getPendingAusCount() - activeOps;
+    long pendingOps = mdxMgr.getPendingAusCount();
     long successfulOps = mdxMgr.getSuccessfulReindexingCount();
     long failedOps = mdxMgr.getFailedReindexingCount();
     long articleCount = mdxMgr.getArticleCount();

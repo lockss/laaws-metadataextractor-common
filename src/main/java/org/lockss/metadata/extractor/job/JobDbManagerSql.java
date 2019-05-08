@@ -83,6 +83,12 @@ public class JobDbManagerSql extends DbManagerSql {
       + OWNER_COLUMN + " varchar(" + MAX_OWNER_COLUMN + ")"
       + ")";
 
+  // Query to create the table for job metadata.
+  private static final String CREATE_JOB_METADATA_TABLE_QUERY = "create table "
+      + JOB_METADATA_TABLE + " ("
+      + TRUNCATION_TIME_COLUMN + " bigint"
+      + ")";
+
   // The SQL code used to create the necessary version 1 database tables.
   @SuppressWarnings("serial")
   private static final Map<String, String> VERSION_1_TABLE_CREATE_QUERIES =
@@ -131,6 +137,19 @@ public class JobDbManagerSql extends DbManagerSql {
       + "(" + JOB_STATUS_SEQ_COLUMN
       + "," + STATUS_NAME_COLUMN
       + ") values (default,?)";
+
+  // The SQL code used to create the necessary version 3 database tables.
+  @SuppressWarnings("serial")
+  private static final Map<String, String> VERSION_3_TABLE_CREATE_QUERIES =
+    new LinkedHashMap<String, String>() {{
+      put(JOB_METADATA_TABLE, CREATE_JOB_METADATA_TABLE_QUERY);
+    }};
+
+  // Query to insert the job metadata.
+  private static final String INSERT_JOB_METADATA_QUERY = "insert into "
+      + JOB_METADATA_TABLE
+      + "(" + TRUNCATION_TIME_COLUMN
+      + ") values (0)";
 
   /**
    * Constructor.
@@ -316,5 +335,66 @@ public class JobDbManagerSql extends DbManagerSql {
     addJobType(conn, JOB_TYPE_PUT_INCREMENTAL_AU);
 
     if (log.isDebug2())  log.debug2(DEBUG_HEADER + "Done.");
+  }
+
+  /**
+   * Updates the database from version 2 to version 3.
+   * 
+   * @param conn
+   *          A Connection with the database connection to be used.
+   * @throws SQLException
+   *           if any problem occurred updating the database.
+   */
+  void updateDatabaseFrom2To3(Connection conn) throws SQLException {
+    log.debug2("Invoked");
+
+    if (conn == null) {
+      throw new IllegalArgumentException("Null connection");
+    }
+
+    // Create the necessary tables if they do not exist.
+    createTablesIfMissing(conn, VERSION_3_TABLE_CREATE_QUERIES);
+
+    // Initialize necessary data in new tables.
+    insertJobQueueMetadata(conn);
+
+    log.debug2("Done");
+  }
+
+  /**
+   * Adds the job queue metadata to the database.
+   * 
+   * @param conn
+   *          A Connection with the database connection to be used.
+   * @throws SQLException
+   *           if any problem occurred accessing the database.
+   */
+  private void insertJobQueueMetadata(Connection conn) throws SQLException {
+    log.debug2("Invoked");
+
+    if (conn == null) {
+      throw new IllegalArgumentException("Null connection");
+    }
+
+    PreparedStatement insertJobMetadata = null;
+
+    try {
+      insertJobMetadata = prepareStatement(conn, INSERT_JOB_METADATA_QUERY);
+
+      int count = executeUpdate(insertJobMetadata);
+      if (log.isDebug3()) log.debug3("count = " + count);
+    } catch (SQLException sqle) {
+      log.error("Cannot add job queue metadata", sqle);
+      log.error("SQL = '" + INSERT_JOB_METADATA_QUERY + "'.");
+      throw sqle;
+    } catch (RuntimeException re) {
+      log.error("Cannot add job queue metadata", re);
+      log.error("SQL = '" + INSERT_JOB_METADATA_QUERY + "'.");
+      throw re;
+    } finally {
+      safeCloseStatement(insertJobMetadata);
+    }
+
+    log.debug2("Done");
   }
 }

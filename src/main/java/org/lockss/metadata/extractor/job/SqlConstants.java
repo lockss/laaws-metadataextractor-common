@@ -49,6 +49,9 @@ public class SqlConstants {
   /** Name of the job table. */
   public static final String JOB_TABLE = "job";
 
+  /** Name of the job metadata table. */
+  public static final String JOB_METADATA_TABLE = "job_metadata";
+
   //
   // Database table column names.
   //
@@ -93,6 +96,9 @@ public class SqlConstants {
 
   /** Owner column. */
   public static final String OWNER_COLUMN = "owner";
+
+  /** Job queue truncation timestamp column. */
+  public static final String TRUNCATION_TIME_COLUMN = "truncation_time";
 
   //
   // Maximum lengths of variable text length database columns.

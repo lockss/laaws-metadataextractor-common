@@ -309,7 +309,7 @@ public class MetadataIndexingStarter extends LockssRunnable {
     /** Called for AU changed events */
     @Override
     public void auContentChanged(AuEvent event, ArchivalUnit au,
-	ChangeInfo info) {
+	AuEvent.ContentChangeInfo info) {
       final String DEBUG_HEADER = "auContentChanged(): ";
 
       switch (event.getType()) {

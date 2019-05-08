@@ -31,12 +31,15 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 package org.lockss.metadata.extractor.job;
 
+import java.io.File;
 import java.sql.Connection;
 import java.sql.SQLException;
 import org.lockss.app.ConfigurableManager;
+import org.lockss.config.ConfigManager;
 import org.lockss.config.Configuration;
 import org.lockss.db.DbManager;
 import org.lockss.db.DbException;
+import org.lockss.util.FileUtil;
 import org.lockss.util.Logger;
 
 /**
@@ -158,6 +161,15 @@ public class JobDbManager extends DbManager implements ConfigurableManager {
    */
   public JobDbManager() {
     super();
+    setUpVersions();
+  }
+
+  /**
+   * Sets up update versions.
+   */
+  private void setUpVersions() {
+    targetDatabaseVersion = 3;
+    asynchronousUpdates = new int[] {};
   }
 
   /**
@@ -205,9 +217,6 @@ public class JobDbManager extends DbManager implements ConfigurableManager {
       fetchSize = config.getInt(PARAM_FETCH_SIZE, DEFAULT_FETCH_SIZE);
       dbManagerSql.setFetchSize(fetchSize);
     }
-
-    targetDatabaseVersion = 2;
-    asynchronousUpdates = new int[] {};
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
   }
@@ -260,14 +269,23 @@ public class JobDbManager extends DbManager implements ConfigurableManager {
 
   @Override
   protected String getDataSourceDatabaseName(Configuration config) {
-    if (isTypeDerby()) {
-      return config.get(PARAM_DATASOURCE_DATABASENAME,
-	"db/" + this.getClass().getSimpleName());
+    // Get the configured database name.
+    String dbName = config.get(PARAM_DATASOURCE_DATABASENAME,
+	  this.getClass().getSimpleName());
+
+    // Check whether it is a Derby database with a relative path database name.
+    if (isTypeDerby() && !dbName.startsWith(File.separator)) {
+      // Yes: Get the data source root directory.
+      String pathFromCache = "db/" + dbName;
+      File datasourceDir = ConfigManager.getConfigManager()
+	  .findConfiguredDataDir(pathFromCache, pathFromCache, false);
+
+      // Return the data source root directory.
+      return FileUtil.getCanonicalOrAbsolutePath(datasourceDir);
     }
 
-    return config.get(PARAM_DATASOURCE_DATABASENAME,
-	this.getClass().getSimpleName());
-}
+    return dbName;
+  }
 
   @Override
   protected String getDerbyInfoLogAppend(Configuration config) {
@@ -399,6 +417,8 @@ public class JobDbManager extends DbManager implements ConfigurableManager {
       jobDbManagerSql.setUpDatabaseVersion1(conn);
     } else if (databaseVersion == 2) {
       jobDbManagerSql.updateDatabaseFrom1To2(conn);
+    } else if (databaseVersion == 3) {
+      jobDbManagerSql.updateDatabaseFrom2To3(conn);
     } else {
       throw new RuntimeException("Non-existent method to update the database "
 	  + "to version " + databaseVersion + ".");

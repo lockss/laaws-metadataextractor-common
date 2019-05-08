@@ -1,6 +1,6 @@
 /*
 
-Copyright (c) 2012-2018 Board of Trustees of Leland Stanford Jr. University,
+Copyright (c) 2018 Board of Trustees of Leland Stanford Jr. University,
 all rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -29,49 +29,37 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
  */
-package org.lockss.metadata.extractor;
+package org.lockss.metadata.extractor.job;
 
-import static org.lockss.metadata.MetadataManager.METADATA_STATUS_TABLE_NAME;
-import java.util.ArrayList;
-import java.util.BitSet;
 import java.util.List;
-import org.lockss.daemon.status.OverviewAccessor;
-import org.lockss.daemon.status.StatusTable;
-import org.lockss.util.StringUtil;
 
 /**
- * This OverviewAccessor sorts the list into three groups: active, by 
- * descending start time; pending, in queue order, and done, by descending 
- * end time.
- * 
- * @author Philip GUst
- *
+ * A page of jobs.
  */
-class MetadataIndexingOverviewAccessor implements OverviewAccessor {
-  final MetadataExtractorManager mdxMgr;
-  
-  public MetadataIndexingOverviewAccessor(MetadataExtractorManager mdxMgr) {
-    this.mdxMgr = mdxMgr;
+public class JobPage {
+  private List<Job> jobs;
+  private JobContinuationToken continuationToken;
+
+  public List<Job> getJobs() {
+    return jobs;
+  }
+
+  public void setJobs(List<Job> jobs) {
+    this.jobs = jobs;
+  }
+
+  public JobContinuationToken getContinuationToken() {
+    return continuationToken;
+  }
+
+  public void setContinuationToken(JobContinuationToken
+      continuationToken) {
+    this.continuationToken = continuationToken;
   }
 
   @Override
-  public Object getOverview(String tableName, BitSet options) {
-    List<StatusTable.Reference> res = new ArrayList<StatusTable.Reference>();
-    String s;
-    if (mdxMgr.isIndexingEnabled()) {
-      long activeCount = mdxMgr.getActiveReindexingCount();
-      long pendingCount = mdxMgr.getPendingAusCount();
-      s =   StringUtil.numberOfUnits(
-              activeCount, 
-              "active metadata indexing operation", 
-              "active metadata index operations") + ", "
-          + StringUtil.numberOfUnits(
-              pendingCount, "pending", "pending");
-    } else {
-      s = "Metadata Indexing Disabled";
-    }
-    res.add(new StatusTable.Reference(s, METADATA_STATUS_TABLE_NAME));
-
-    return res;
+  public String toString() {
+    return "[JobPage jobs=" + jobs + ", continuationToken=" + continuationToken
+	+ "]";
   }
 }
