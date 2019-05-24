@@ -29,7 +29,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
  */
-package org.lockss.metadata.extractor;
+package org.lockss.metadata;
 
 import static org.lockss.metadata.extractor.MetadataExtractorManager.*;
 import static org.lockss.metadata.SqlConstants.*;
@@ -55,12 +55,15 @@ import org.lockss.extractor.ArticleMetadata;
 import org.lockss.extractor.ArticleMetadataExtractor;
 import org.lockss.extractor.MetadataField;
 import org.lockss.extractor.MetadataTarget;
+import org.lockss.metadata.ArticleMetadataBuffer.ArticleMetadataInfo;
 import org.lockss.metadata.MetadataDbManager;
 import org.lockss.metadata.MetadataManager;
-import org.lockss.metadata.extractor.ArticleMetadataBuffer.ArticleMetadataInfo;
+import org.lockss.metadata.extractor.MetadataExtractorManager;
+import org.lockss.metadata.extractor.ReindexingTask;
 import org.lockss.metadata.extractor.TestMetadataExtractorManager.MySubTreeArticleIteratorFactory;
 import org.lockss.metadata.extractor.job.JobDbManager;
 import org.lockss.metadata.extractor.job.JobManager;
+import org.lockss.metadata.query.MetadataQueryManager;
 import org.lockss.plugin.ArchivalUnit;
 import org.lockss.plugin.ArticleFiles;
 import org.lockss.plugin.ArticleIteratorFactory;
@@ -86,6 +89,7 @@ public class TestAuMetadataRecorder extends LockssTestCase {
   private SimulatedArchivalUnit sau0;
   private long sau0CreationTime;
   private MetadataManager mdManager;
+  private MetadataQueryManager mdqManager;
   private MetadataExtractorManager mdxManager;
   private MetadataDbManager dbManager;
 
@@ -121,6 +125,11 @@ public class TestAuMetadataRecorder extends LockssTestCase {
     theDaemon.setMetadataManager(mdManager);
     mdManager.initService(theDaemon);
     mdManager.startService();
+
+    mdqManager = new MetadataQueryManager();
+    theDaemon.setManagerByType(MetadataQueryManager.class, mdqManager);
+    mdqManager.initService(theDaemon);
+    mdqManager.startService();
 
     theDaemon.setManagerByType(JobManager.class, new JobManager());
     theDaemon.setManagerByType(JobDbManager.class, new JobDbManager());

@@ -1,6 +1,6 @@
 /*
 
-Copyright (c) 2012-2018 Board of Trustees of Leland Stanford Jr. University,
+Copyright (c) 2012-2019 Board of Trustees of Leland Stanford Jr. University,
 all rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -43,7 +43,8 @@ import org.lockss.daemon.status.ColumnDescriptor;
 import org.lockss.daemon.status.StatusAccessor;
 import org.lockss.daemon.status.StatusService.NoSuchTableException;
 import org.lockss.daemon.status.StatusTable;
-import org.lockss.metadata.extractor.ArticleMetadataBuffer.ArticleMetadataInfo;
+import org.lockss.metadata.ArticleMetadataBuffer.ArticleMetadataInfo;
+import org.lockss.metadata.MetadataIndexingException;
 import org.lockss.metadata.extractor.MetadataExtractorManager.PrioritizedAuId;
 import org.lockss.metadata.extractor.MetadataExtractorManager.ReindexingStatus;
 import org.lockss.plugin.ArchivalUnit;
@@ -66,9 +67,9 @@ import org.lockss.util.time.TimeBase;
  *
  */
 public class MetadataManagerStatusAccessor implements StatusAccessor {
-  public static final String NEW_INDEX_TEXT = "New Index";
-  public static final String FULL_REINDEX_TEXT = "Full Reindex";
-  public static final String REINDEX_TEXT = "Reindex";
+  static final String NEW_INDEX_TEXT = "New Index";
+  static final String FULL_REINDEX_TEXT = "Full Reindex";
+  static final String REINDEX_TEXT = "Reindex";
 
   private static Logger log =
       Logger.getLogger(MetadataManagerStatusAccessor.class);
@@ -93,7 +94,7 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
   private static int SORT_BASE_DONE = 2000000;
 
   final private List<ColumnDescriptor> colDescs =
-      ListUtil.fromArray(new ColumnDescriptor[] {
+      ListUtil.list(new ColumnDescriptor[] {
         new ColumnDescriptor(AU_COL_NAME, "Journal Volume",
                              ColumnDescriptor.TYPE_STRING)
         .setComparator(CatalogueOrderComparator.SINGLETON),

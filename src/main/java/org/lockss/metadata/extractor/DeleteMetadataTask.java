@@ -1,6 +1,6 @@
 /*
 
-Copyright (c) 2016-2018 Board of Trustees of Leland Stanford Jr. University,
+Copyright (c) 2016-2019 Board of Trustees of Leland Stanford Jr. University,
 all rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -39,6 +39,7 @@ import org.lockss.app.LockssDaemon;
 import org.lockss.config.CurrentConfig;
 import org.lockss.daemon.LockssWatchdog;
 import org.lockss.db.JdbcContext;
+import org.lockss.metadata.MetadataConstants;
 import org.lockss.metadata.MetadataDbManager;
 import org.lockss.metadata.extractor.MetadataExtractorManager.ReindexingStatus;
 import org.lockss.plugin.ArchivalUnit;
@@ -179,8 +180,8 @@ public class DeleteMetadataTask extends StepTask {
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auId = " + auId);
 
     // Check whether the metadata should be deleted via a REST web service.
-    if (CurrentConfig.getParam(MetadataExtractorManager
-	.PARAM_MD_REST_SERVICE_LOCATION) != null) {
+    if (CurrentConfig.getParam(MetadataConstants.PARAM_MD_REST_SERVICE_LOCATION)
+	!= null) {
       // Yes: Invoke the REST web service operation.
       try {
 	Integer removedArticleCount =

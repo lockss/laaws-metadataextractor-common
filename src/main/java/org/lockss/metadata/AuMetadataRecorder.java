@@ -29,10 +29,10 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
  */
-package org.lockss.metadata.extractor;
+package org.lockss.metadata;
 
+import static org.lockss.metadata.MetadataConstants.*;
 import static org.lockss.metadata.SqlConstants.*;
-import static org.lockss.metadata.extractor.MetadataExtractorManager.*;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -45,16 +45,23 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.lockss.app.LockssApp;
 import org.lockss.app.LockssDaemon;
 import org.lockss.config.CurrentConfig;
 import org.lockss.db.DbException;
 import org.lockss.db.DbManager;
 import org.lockss.exporter.counter.CounterReportsManager;
 import org.lockss.extractor.MetadataField;
+import org.lockss.metadata.ArticleMetadataBuffer.ArticleMetadataInfo;
 import org.lockss.metadata.ItemMetadata;
 import org.lockss.metadata.MetadataDbManager;
 import org.lockss.metadata.MetadataManager;
-import org.lockss.metadata.extractor.ArticleMetadataBuffer.ArticleMetadataInfo;
+import org.lockss.metadata.extractor.MetadataExtractorManager;
+import org.lockss.metadata.extractor.MetadataExtractorManagerSql;
+import org.lockss.metadata.extractor.ReindexingTask;
+import org.lockss.metadata.extractor.StoreAuItemClient;
+import org.lockss.metadata.query.MetadataQueryManager;
+import org.lockss.metadata.query.MetadataQueryManagerSql;
 import org.lockss.plugin.ArchivalUnit;
 import org.lockss.plugin.Plugin;
 import org.lockss.plugin.PluginManager;
@@ -220,6 +227,12 @@ public class AuMetadataRecorder {
   // The calling task.
   private final ReindexingTask task;
 
+  // The metadata query manager.
+  private final MetadataQueryManager mdqManager;
+
+  // The metadata query manager SQL executor.
+  private final MetadataQueryManagerSql mdqManagerSql;
+
   // The metadata extractor manager.
   private final MetadataExtractorManager mdxManager;
 
@@ -232,14 +245,10 @@ public class AuMetadataRecorder {
   // The metadata manager.
   private final MetadataManager mdManager;
 
-  // The metadata manager SQL executor.
-  //private final MetadataManagerSql mdManagerSql;
-
   // The archival unit.
   private final ArchivalUnit au;
 
   // AU-related properties independent of the database.
-  //private final Plugin plugin;
   private final String platform;
   private final int pluginVersion;
   private final String auId;
@@ -282,7 +291,8 @@ public class AuMetadataRecorder {
    */
   public AuMetadataRecorder(ReindexingTask task,
       MetadataExtractorManager mdxManager, ArchivalUnit au) {
-    this(task, mdxManager, au, au.getPlugin(), au.getAuId());
+    this(task, LockssApp.getManagerByTypeStatic(MetadataQueryManager.class),
+	mdxManager, au, au.getPlugin(), au.getAuId());
   }
 
   /**
@@ -290,8 +300,10 @@ public class AuMetadataRecorder {
    * 
    * @param task
    *          A ReindexingTaskwith the calling task.
+   * @param mdqManager
+   *          A MetadataQueryManager with the metadata query manager.
    * @param mdxManager
-   *          A MetadataManager with the metadata extractor manager.
+   *          A MetadataExtractorManager with the metadata extractor manager.
    * @param au
    *          An ArchivalUnit with the archival unit.
    * @param plugin
@@ -300,19 +312,33 @@ public class AuMetadataRecorder {
    *          A String with the archival unit identifier.
    */
   public AuMetadataRecorder(ReindexingTask task,
-      MetadataExtractorManager mdxManager, ArchivalUnit au, Plugin plugin,
-      String auId) {
+      MetadataQueryManager mdqManager, MetadataExtractorManager mdxManager,
+      ArchivalUnit au, Plugin plugin, String auId) {
     this.task = task;
+    this.mdqManager = mdqManager;
     this.mdxManager = mdxManager;
-    mdxManagerSql = mdxManager.getMetadataExtractorManagerSql();
-    dbManager = mdxManager.getDbManager();
-    mdManager = mdxManager.getMetadataManager();
+
+    dbManager = mdqManager.getDbManager();
+    mdManager = mdqManager.getMetadataManager();
+    mdqManagerSql = mdqManager.getMetadataQueryManagerSql();
+
+    if (mdxManager != null) {
+      mdxManagerSql = mdxManager.getMetadataExtractorManagerSql();
+    } else {
+      mdxManagerSql = null;
+    }
+
     this.au = au;
 
-    //this.plugin = plugin;
     isBulkContent = plugin.isBulkContent();
     platform = plugin.getPublishingPlatform();
-    pluginVersion = mdxManager.getPluginMetadataVersionNumber(plugin);
+
+    if (mdxManager != null) {
+      pluginVersion = mdxManager.getPluginMetadataVersionNumber(plugin);
+    } else {
+      pluginVersion = 0;
+    }
+
     this.auId = auId;
     auKey = PluginManager.auKeyFromAuId(auId);
     pluginId = PluginManager.pluginIdFromAuId(auId);
@@ -333,8 +359,9 @@ public class AuMetadataRecorder {
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
-  void recordMetadata(Connection conn, Iterator<ArticleMetadataInfo> mditr,
-      long creationTime) throws MetadataIndexingException, DbException {
+  public void recordMetadata(Connection conn,
+      Iterator<ArticleMetadataInfo> mditr, long creationTime)
+	  throws MetadataIndexingException, DbException {
     final String DEBUG_HEADER = "recordMetadata(): ";
 
     // Get the mandatory metadata fields.
@@ -407,7 +434,7 @@ public class AuMetadataRecorder {
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
-  Long recordMetadataItem(Connection conn, List<String> mandatoryFields,
+  public Long recordMetadataItem(Connection conn, List<String> mandatoryFields,
       Iterator<ArticleMetadataInfo> mditr, long creationTime)
 	  throws MetadataIndexingException, DbException {
     final String DEBUG_HEADER = "recordMetadataItem(): ";
@@ -1788,7 +1815,7 @@ public class AuMetadataRecorder {
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "addedCount = " + addedCount);
 
     // Add the item URLs.
-    mdxManager.addMdItemUrls(conn, mdItemSeq, accessUrl, featuredUrlMap);
+    mdqManager.addMdItemUrls(conn, mdItemSeq, accessUrl, featuredUrlMap);
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "added AUItem URL.");
 
     // Get the authors received in the metadata.
@@ -1796,7 +1823,7 @@ public class AuMetadataRecorder {
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "authors = " + authors);
 
     // Add the item authors.
-    mdxManagerSql.addMdItemAuthors(conn, mdItemSeq, authors);
+    mdqManagerSql.addMdItemAuthors(conn, mdItemSeq, authors);
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "added AUItem authors.");
 
     // Get the keywords received in the metadata.
@@ -1804,7 +1831,7 @@ public class AuMetadataRecorder {
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "keywords = " + keywords);
 
     // Add the item keywords.
-    mdxManagerSql.addMdItemKeywords(conn, mdItemSeq, keywords);
+    mdqManagerSql.addMdItemKeywords(conn, mdItemSeq, keywords);
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "added AUItem keywords.");
 
     // Add the item DOI.
@@ -2562,8 +2589,7 @@ public class AuMetadataRecorder {
 	publicationSeq);
 
     // Delete the journal publication year aggregate counts for the unknown
-    // publisher
-    // publication.
+    // publisher publication.
     crManager.deleteJournalPubYearAggregates(conn, unknownPublicationSeq);
 
     log.debug3(DEBUG_HEADER + "Done.");
@@ -2813,7 +2839,7 @@ public class AuMetadataRecorder {
    *           if some element could neither be found in the database nor added
    *           to it.
    */
-  void recordMetadataExtraction(Connection conn, long creationTime)
+  public void recordMetadataExtraction(Connection conn, long creationTime)
       throws DbException, MetadataIndexingException {
     final String DEBUG_HEADER = "recordMetadataExtraction(): ";
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Invoked.");
@@ -2894,7 +2920,7 @@ public class AuMetadataRecorder {
       log.debug3(DEBUG_HEADER + "providerSeq = " + providerSeq);
 
     boolean updated =
-	mdxManagerSql.updateAuUnknownProvider(conn, auMdSeq, providerSeq);
+	mdqManagerSql.updateAuUnknownProvider(conn, auMdSeq, providerSeq);
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "updated = " + updated);
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");

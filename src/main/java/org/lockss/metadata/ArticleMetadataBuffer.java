@@ -1,6 +1,6 @@
 /*
 
-Copyright (c) 2012-2018 Board of Trustees of Leland Stanford Jr. University,
+Copyright (c) 2012-2019 Board of Trustees of Leland Stanford Jr. University,
 all rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -29,7 +29,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
  */
-package org.lockss.metadata.extractor;
+package org.lockss.metadata;
 
 import static org.lockss.metadata.SqlConstants.*;
 import java.io.BufferedInputStream;
@@ -56,6 +56,7 @@ import org.lockss.extractor.ArticleMetadata;
 import org.lockss.extractor.MetadataField;
 import org.lockss.metadata.ItemMetadata;
 import org.lockss.metadata.MetadataManager;
+import org.lockss.metadata.query.MetadataQueryManager;
 import org.lockss.util.CloseCallbackInputStream.DeleteFileOnCloseInputStream;
 import org.lockss.util.FileUtil;
 import org.lockss.util.IOUtil;
@@ -70,7 +71,7 @@ import org.lockss.util.StringUtil;
  * @author Philip Gust
  *
  */
-class ArticleMetadataBuffer {
+public class ArticleMetadataBuffer {
   private static Logger log = Logger.getLogger(ArticleMetadataBuffer.class);
 
   File collectedMetadataFile = null;
@@ -86,7 +87,7 @@ class ArticleMetadataBuffer {
    * @author Philip Gust
    *
    */
-  static class ArticleMetadataInfo implements Serializable {
+  static public class ArticleMetadataInfo implements Serializable {
     private static final long serialVersionUID = -2372571567706061080L;
     String publisher;
     String provider;
@@ -179,7 +180,7 @@ class ArticleMetadataBuffer {
       // get publication type from metadata or infer it if not set
       publicationType = md.get(MetadataField.FIELD_PUBLICATION_TYPE);
       if (StringUtil.isNullString(publicationType)) {
-        if (MetadataExtractorManager.isBookSeries(
+        if (MetadataQueryManager.isBookSeries(
             issn, eissn, isbn, eisbn, seriesTitle, volume)) {
           // book series if e/isbn and either e/issn or volume fields present
           publicationType = MetadataField.PUBLICATION_TYPE_BOOKSERIES;
@@ -231,7 +232,259 @@ class ArticleMetadataBuffer {
 	publicationTitle = "File from " + publisher;
       }
     }
-    
+
+    /**
+     * Provides the name of the publisher.
+     * 
+     * @return a String with the name of the publisher.
+     */
+    public String getPublisher() {
+      return publisher;
+    }
+
+    /**
+     * Provides the name of the provider.
+     * 
+     * @return a String with the name of the provider.
+     */
+    public String getProvider() {
+      return provider;
+    }
+
+    /**
+     * Provides the title of the book series.
+     * 
+     * @return a String with the title of the book series.
+     */
+    public String getSeriesTitle() {
+      return seriesTitle;
+    }
+
+    /**
+     * Provides the proprietary identifier of the book series.
+     * 
+     * @return a String with the proprietary identifier of the book series.
+     */
+    public String getProprietarySeriesIdentifier() {
+      return proprietarySeriesIdentifier;
+    }
+
+    /**
+     * Provides the title of the publication.
+     * 
+     * @return a String with the title of the publication.
+     */
+    public String getPublicationTitle() {
+      return publicationTitle;
+    }
+
+    /**
+     * Provides the type of the publication.
+     * 
+     * @return a String with the type of the publication.
+     */
+    public String getPublicationType() {
+      return publicationType;
+    }
+
+    /**
+     * Provides the print ISBN.
+     * 
+     * @return a String with the print ISBN.
+     */
+    public String getIsbn() {
+      return isbn;
+    }
+
+    /**
+     * Provides the online ISBN.
+     * 
+     * @return a String with the online ISBN.
+     */
+    public String getEisbn() {
+      return eisbn;
+    }
+
+    /**
+     * Provides the print ISSN.
+     * 
+     * @return a String with the print ISSN.
+     */
+    public String getIssn() {
+      return issn;
+    }
+
+    /**
+     * Provides the online ISSN.
+     * 
+     * @return a String with the online ISSN.
+     */
+    public String getEissn() {
+      return eissn;
+    }
+
+    /**
+     * Provides the bibliographic volume.
+     * 
+     * @return a String with the bibliographic volume.
+     */
+    public String getVolume() {
+      return volume;
+    }
+
+    /**
+     * Provides the bibliographic issue.
+     * 
+     * @return a String with the bibliographic issue.
+     */
+    public String getIssue() {
+      return issue;
+    }
+
+    /**
+     * Provides the bibliographic starting page.
+     * 
+     * @return a String with the bibliographic starting page.
+     */
+    public String getStartPage() {
+      return startPage;
+    }
+
+    /**
+     * Provides the publication date.
+     * 
+     * @return a String with the publication date.
+     */
+    public String getPubDate() {
+      return pubDate;
+    }
+
+    /**
+     * Provides the title of the article.
+     * 
+     * @return a String with the title of the article.
+     */
+    public String getArticleTitle() {
+      return articleTitle;
+    }
+
+    /**
+     * Provides the type of the article.
+     * 
+     * @return a String with the type of the article.
+     */
+    public String getArticleType() {
+      return articleType;
+    }
+
+    /**
+     * Provides the names of the authors.
+     * 
+     * @return a Collection<String> with the names of the authors.
+     */
+    public Collection<String> getAuthors() {
+      return authors;
+    }
+
+    /**
+     * Provides the DOI.
+     * 
+     * @return a String with the DOI.
+     */
+    public String getDoi() {
+      return doi;
+    }
+
+    /**
+     * Provides the access URL.
+     * 
+     * @return a String with the access URL.
+     */
+    public String getAccessUrl() {
+      return accessUrl;
+    }
+
+    /**
+     * Provides the map of URLs keyed by feature.
+     * 
+     * @return a Map<String, String> with the map of URLs keyed by feature.
+     */
+    public Map<String, String> getFeaturedUrlMap() {
+      return featuredUrlMap;
+    }
+
+    /**
+     * Provides the keywords.
+     * 
+     * @return a Collection<String> with the keywords.
+     */
+    public Collection<String> getKeywords() {
+      return keywords;
+    }
+
+    /**
+     * Provides the bibliographic ending page.
+     * 
+     * @return a String with the bibliographic ending page.
+     */
+    public String getEndPage() {
+      return endPage;
+    }
+
+    /**
+     * Provides the coverage.
+     * 
+     * @return a String with the coverage.
+     */
+    public String getCoverage() {
+      return coverage;
+    }
+
+    /**
+     * Provides the bibliographic item number.
+     * 
+     * @return a String with the bibliographic item number.
+     */
+    public String getItemNumber() {
+      return itemNumber;
+    }
+
+    /**
+     * Provides the proprietary identifier.
+     * 
+     * @return a String with the proprietary identifier.
+     */
+    public String getProprietaryIdentifier() {
+      return proprietaryIdentifier;
+    }
+
+    /**
+     * Provides the fetch time.
+     * 
+     * @return a String with the fetch time.
+     */
+    public String getFetchTime() {
+      return fetchTime;
+    }
+
+    /**
+     * Provides the metadata map.
+     * 
+     * @return a Map<String, String> with the metadata map.
+     */
+    public Map<String, String> getMdMap() {
+      return mdMap;
+    }
+
+    /**
+     * Provides the publication year.
+     * 
+     * @return a String with the publication year.
+     */
+    public String getPubYear() {
+      return pubYear;
+    }
+
     /**
      * Return the date field to store in the database. The date field can be
      * nearly anything a MetaData extractor chooses to provide, making it a near
@@ -261,8 +514,6 @@ class ArticleMetadataBuffer {
      * Populates an ItemMetadata with data provided in an ArticleMetadataInfo
      * object.
      * 
-     * @param ami
-     *          An ArticleMetadataInfo with the source of the data.
      * @return an ItemMetadata populated with the source data.
      */
     public ItemMetadata populateItemMetadataDetail() {
@@ -437,6 +688,14 @@ class ArticleMetadataBuffer {
     }
   }
 
+  /**
+   * Constructor.
+   * 
+   * @param tmpdir
+   *          A File withe the temporary directory.
+   * @throws IOException
+   *           if there are problems.
+   */
   public ArticleMetadataBuffer(File tmpdir) throws IOException {
     collectedMetadataFile = 
       FileUtil.createTempFile("MetadataManager", "md", tmpdir);
@@ -446,15 +705,16 @@ class ArticleMetadataBuffer {
                 new FileOutputStream(collectedMetadataFile)));
   }
 
-  /** 
-   * Add the information from the specified metadata record
-   * to the buffer
+  /**
+   * Add the information from the specified metadata record to the buffer.
    * 
-   * @param md the metadata record
-   * @throws IllegalStateException if no more items can be added
-   *   because the iterator has already been obtained
+   * @param md
+   *          A ArticleMetadata with the metadata record.
+   * @throws IOException
+   *           if no more items can be added because the iterator has already
+   *           been obtained or because of other problems.
    */
-  void add(ArticleMetadata md) throws IOException {
+  public void add(ArticleMetadata md) throws IOException {
     if (outstream == null) {
       throw new IllegalStateException("collectedMetadataOutputStream closed");
     }
@@ -471,7 +731,7 @@ class ArticleMetadataBuffer {
    * @throws IllegalStateException if the iterator cannot be obtained
    *   because the buffer is closed
    */
-  Iterator<ArticleMetadataInfo> iterator() {
+  public Iterator<ArticleMetadataInfo> iterator() {
     if (!isOpen()) {
       throw new IllegalStateException("Buffer is closed");
     }
@@ -542,7 +802,7 @@ class ArticleMetadataBuffer {
   /**
    * Release the collected metadata.
    */
-  void close() {
+  public void close() {
     // collectedMetadataOutputStream automatically deleted on close 
     IOUtil.safeClose(outstream);
     IOUtil.safeClose(instream);

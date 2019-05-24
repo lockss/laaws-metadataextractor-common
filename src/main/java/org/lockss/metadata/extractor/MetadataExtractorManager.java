@@ -47,6 +47,7 @@ import java.util.Map;
 import java.util.Set;
 import org.lockss.app.BaseLockssManager;
 import org.lockss.app.ConfigurableManager;
+import org.lockss.app.LockssApp;
 import org.lockss.config.*;
 import org.lockss.config.Configuration.Differences;
 import org.lockss.daemon.LockssRunnable;
@@ -61,13 +62,15 @@ import org.lockss.extractor.MetadataTarget;
 import org.lockss.metadata.Isbn;
 import org.lockss.metadata.Issn;
 import org.lockss.metadata.ItemMetadata;
-import org.lockss.metadata.ItemMetadataContinuationToken;
-import org.lockss.metadata.ItemMetadataPage;
+import org.lockss.metadata.MetadataConstants;
 import org.lockss.metadata.MetadataDbManager;
 import org.lockss.metadata.MetadataManager;
-import org.lockss.metadata.extractor.ArticleMetadataBuffer.ArticleMetadataInfo;
+import org.lockss.metadata.ArticleMetadataBuffer;
+import org.lockss.metadata.ArticleMetadataBuffer.ArticleMetadataInfo;
+import org.lockss.metadata.AuMetadataRecorder;
 import org.lockss.metadata.extractor.job.JobManager;
 import org.lockss.metadata.extractor.job.SqlConstants;
+import org.lockss.metadata.query.MetadataQueryManager;
 import org.lockss.plugin.ArchivalUnit;
 import org.lockss.plugin.AuUtil;
 import org.lockss.plugin.Plugin;
@@ -90,7 +93,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
   private static Logger log = Logger.getLogger(MetadataExtractorManager.class);
 
   /** prefix for config properties */
-  public static final String PREFIX = Configuration.PREFIX + "metadataManager.";
+  public static final String PREFIX = MetadataConstants.PREFIX;
 
   /**
    * Determines whether MedataExtractor specified by plugin should be used if it
@@ -201,17 +204,6 @@ public class MetadataExtractorManager extends BaseLockssManager implements
   private static final int DEFAULT_MAX_PENDING_TO_REINDEX_AU_BATCH_SIZE = 1000;
 
   /**
-   * The initial value of the metadata extraction time for an AU whose metadata
-   * has not been extracted yet.
-   */
-  public static final long NEVER_EXTRACTED_EXTRACTION_TIME = 0L;
-
-//  public static final String ACCESS_URL_FEATURE = "Access";
-
-  static final String UNKNOWN_TITLE_NAME_ROOT = "UNKNOWN_TITLE";
-  static final String UNKNOWN_SERIES_NAME_ROOT = "UNKNOWN_SERIES";
-
-  /**
    * Mandatory metadata fields.
    */
   static final String PARAM_MANDATORY_FIELDS = PREFIX + "mandatoryFields";
@@ -228,14 +220,13 @@ public class MetadataExtractorManager extends BaseLockssManager implements
   /**
    * The Metadata REST web service parameters.
    */
-  static final String MD_REST_PREFIX = PREFIX + "mdRest.";
-  static final String PARAM_MD_REST_SERVICE_LOCATION =
-      MD_REST_PREFIX + "serviceLocation";
   static final String PARAM_MD_REST_TIMEOUT_VALUE =
-      MD_REST_PREFIX + "timeoutValue";
+      MetadataConstants.MD_REST_PREFIX + "timeoutValue";
   static final int DEFAULT_MD_REST_TIMEOUT_VALUE = 600;
-  static final String PARAM_MD_REST_USER_NAME = MD_REST_PREFIX + "userName";
-  static final String PARAM_MD_REST_PASSWORD = MD_REST_PREFIX + "password";
+  static final String PARAM_MD_REST_USER_NAME =
+      MetadataConstants.MD_REST_PREFIX + "userName";
+  static final String PARAM_MD_REST_PASSWORD =
+      MetadataConstants.MD_REST_PREFIX + "password";
 
   /**
    * Map of running reindexing tasks keyed by their AuIds
@@ -316,7 +307,6 @@ public class MetadataExtractorManager extends BaseLockssManager implements
   // The database manager.
   private MetadataDbManager dbManager = null;
 
-  private ConfigManager configMgr;
   private MetadataManager mdManager;
   private JobManager jobMgr;
 
@@ -386,7 +376,6 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     final String DEBUG_HEADER = "startService(): ";
     log.debug(DEBUG_HEADER + "Starting MetadataExtractorManager");
 
-    configMgr = getConfigManager();
     pluginMgr = getManagerByType(PluginManager.class);
     dbManager = getManagerByType(MetadataDbManager.class);
     mdManager = getManagerByType(MetadataManager.class);
@@ -1277,7 +1266,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
-  void updateAuLastExtractionTime(ArchivalUnit au, Connection conn,
+  public void updateAuLastExtractionTime(ArchivalUnit au, Connection conn,
       Long auMdSeq) throws DbException {
     final String DEBUG_HEADER = "updateAuLastExtractionTime(): ";
 
@@ -1286,39 +1275,6 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 
     mdxManagerSql.updateAuLastExtractionTime(conn, auMdSeq, now);
     pendingAusCount = mdxManagerSql.getEnabledPendingAusCount(conn);
-  }
-
-  /**
-   * Provides an indication of whether a metadata set corresponds to a book
-   * series.
-   * 
-   * @param pIssn
-   *          A String with the print ISSN in the metadata.
-   * @param eIssn
-   *          A String with the electronic ISSN in the metadata.
-   * @param pIsbn
-   *          A String with the print ISBN in the metadata.
-   * @param eIsbn
-   *          A String with the electronic ISBN in the metadata.
-   * @param seriesName
-   *          A String with the series name in the metadata.
-   * @param volume
-   *          A String with the volume in the metadata.
-   * @return <code>true</code> if the metadata set corresponds to a book series,
-   *         <code>false</code> otherwise.
-   */
-  static public boolean isBookSeries(
-      String pIssn, String eIssn, String pIsbn, String eIsbn, 
-      String seriesName, String volume) {
-    final String DEBUG_HEADER = "isBookSeries(): ";
-
-    boolean isBookSeries = MetadataManager.isBook(pIsbn, eIsbn)
-        && (   !StringUtil.isNullString(seriesName) 
-            || !StringUtil.isNullString(volume)
-            || !StringUtil.isNullString(pIssn)
-            || !StringUtil.isNullString(eIssn));
-    log.debug3(DEBUG_HEADER + "isBookSeries = " + isBookSeries);
-    return isBookSeries;
   }
 
   /**
@@ -1768,7 +1724,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    *          A Plugin with the plugin.
    * @return an int with the plugin metadata version.
    */
-  int getPluginMetadataVersionNumber(Plugin plugin) {
+  public int getPluginMetadataVersionNumber(Plugin plugin) {
     final String DEBUG_HEADER = "getPluginMetadataVersionNumber(): ";
   
     int version = 1;
@@ -1916,15 +1872,6 @@ public class MetadataExtractorManager extends BaseLockssManager implements
   }
 
   /**
-   * Utility method to provide the database manager.
-   * 
-   * @return a DbManager with the database manager.
-   */
-  MetadataDbManager getDbManager() {
-    return dbManager;
-  }
-
-  /**
    * Utility method to provide the metadata manager.
    * 
    * @return a MetadataManager with the metadata manager.
@@ -2034,7 +1981,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
-  Long findAuPublisher(Connection conn, Long auSeq) throws DbException {
+  public Long findAuPublisher(Connection conn, Long auSeq) throws DbException {
     return mdxManagerSql.findAuPublisher(conn, auSeq);
   }
 
@@ -2191,7 +2138,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
-  void mergeChildMdItemProperties(Connection conn, Long sourceMdItemSeq,
+  public void mergeChildMdItemProperties(Connection conn, Long sourceMdItemSeq,
       Long targetMdItemSeq) throws DbException {
     final String DEBUG_HEADER = "mergeChildMdItemProperties(): ";
     log.debug3(DEBUG_HEADER + "sourceMdItemSeq = " + sourceMdItemSeq);
@@ -2334,7 +2281,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
-  void mergeParentMdItemProperties(Connection conn, Long sourceMdItemSeq,
+  public void mergeParentMdItemProperties(Connection conn, Long sourceMdItemSeq,
       Long targetMdItemSeq) throws DbException {
     final String DEBUG_HEADER = "mergeParentMdItemProperties(): ";
     log.debug3(DEBUG_HEADER + "sourceMdItemSeq = " + sourceMdItemSeq);
@@ -2522,7 +2469,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * 
    * @return a MetadataExtractorManagerSql with the SQL code executor.
    */
-  MetadataExtractorManagerSql getMetadataExtractorManagerSql() {
+  public MetadataExtractorManagerSql getMetadataExtractorManagerSql() {
     return mdxManagerSql;
   }
 
@@ -2605,7 +2552,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    *
    * @return a List<String> with the metadata fields that are mandatory.
    */
-  List<String> getMandatoryMetadataFields() {
+  public List<String> getMandatoryMetadataFields() {
     return mandatoryMetadataFields;
   }
 
@@ -2741,37 +2688,6 @@ public class MetadataExtractorManager extends BaseLockssManager implements
   }
 
   /**
-   * Provides the full metadata stored for an AU given the AU identifier or a
-   * pageful of the metadata defined by the continuation token and size.
-
-   * @param auId
-   *          A String with the Archival Unit text identifier.
-   * @param limit
-   *          An Integer with the maximum number of AU metadata items to be
-   *          returned.
-   * @param continuationToken
-   *          An ItemMetadataContinuationToken with the pagination token, if
-   *          any.
-   * @return an ItemMetadataPage with the requested metadata of the Archival
-   *         Unit.
-   * @throws IllegalArgumentException
-   *           if the Archival Unit cannot be found in the database.
-   * @throws DbException
-   *           if any problem occurred accessing the database.
-   */
-  public ItemMetadataPage getAuMetadataDetail(String auId, Integer limit,
-      ItemMetadataContinuationToken continuationToken) throws DbException {
-    final String DEBUG_HEADER = "getAuMetadataDetail(): ";
-    if (log.isDebug2()) {
-      log.debug2(DEBUG_HEADER + "auId = " + auId);
-      log.debug2(DEBUG_HEADER + "limit = " + limit);
-      log.debug2(DEBUG_HEADER + "continuationToken = " + continuationToken);
-    }
-
-    return mdxManagerSql.getAuMetadataDetail(auId, limit, continuationToken);
-  }
-
-  /**
    * Stores in the database the metadata for an item belonging to an AU.
    * 
    * @param item
@@ -2841,8 +2757,10 @@ public class MetadataExtractorManager extends BaseLockssManager implements
         log.debug3(DEBUG_HEADER + "mandatoryFields = " + mandatoryFields);
 
       // Write the AU metadata to the database.
-      mdItemSeq = new AuMetadataRecorder(null, this, au, plugin, auId)
-	  .recordMetadataItem(conn, mandatoryFields, mditr, creationTime);
+      mdItemSeq = new AuMetadataRecorder(null,
+	  LockssApp.getManagerByTypeStatic(MetadataQueryManager.class), this,
+	  au, plugin, auId).recordMetadataItem(conn, mandatoryFields, mditr,
+	      creationTime);
 
       // Complete the database transaction.
       MetadataDbManager.commitOrRollback(conn, log);
@@ -3009,71 +2927,5 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "itemCount = " + itemCount);
     return itemCount;
-  }
-
-  /**
-   * Stores in the database the metadata for an item belonging to an AU.
-   * Used for generating a testing database.
-   * 
-   * @param item
-   *          An ItemMetadata with the AU item metadata.
-   * @param au
-   *          An ArchivalUnit with the AU to be written to the database.
-   * @return a Long with the database identifier of the metadata item.
-   * @throws Exception
-   *           if any problem occurred.
-   */
-  public Long storeAuItemMetadataForTesting(ItemMetadata item, ArchivalUnit au)
-      throws Exception {
-    final String DEBUG_HEADER = "storeAuItemMetadata(): ";
-    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "item = " + item);
-
-    Long mdItemSeq = storeAuItemMetadata(item, au, au.getPlugin(), au.getAuId(),
-	AuUtil.getAuCreationTime(au));
-    updateAuLastExtractionTime(au.getAuId());
-
-    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "mdItemSeq = " + mdItemSeq);
-    return mdItemSeq;
- }
-
-  /**
-   * Updates the timestamp of the last extraction of an Archival Unit metadata.
-   * Used for testing.
-   * @param au
-   *          The ArchivalUnit whose time to update.
-   * @param conn
-   *          A Connection with the database connection to be used.
-   * @param auMdSeq
-   *          A Long with the identifier of the Archival Unit metadata.
-   * @throws DbException
-   *           if any problem occurred accessing the database.
-   */
-  void updateAuLastExtractionTime(String auId) throws DbException {
-    final String DEBUG_HEADER = "updateAuLastExtractionTime(): ";
-    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "auId = " + auId);
-
-    Connection conn = null;
-
-    try {
-      // Get a connection to the database.
-      conn = dbManager.getConnection();
-
-      Long auMdSeq = mdxManagerSql.findAuMdByAuId(conn, auId);
-      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auMdSeq = " + auMdSeq);
-
-      long now = TimeBase.nowMs();
-      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "now = " + now);
-
-      mdxManagerSql.updateAuLastExtractionTime(conn, auMdSeq, now);
-
-      // Complete the database transaction.
-      MetadataDbManager.commitOrRollback(conn, log);
-    } catch (Exception e) {
-      log.error("Error updating AU extraction time", e);
-      log.error("auId = " + auId);
-      throw e;
-    } finally {
-      MetadataDbManager.safeRollbackAndClose(conn);
-    }
   }
 }

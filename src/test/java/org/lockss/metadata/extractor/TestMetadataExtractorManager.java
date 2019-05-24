@@ -1,6 +1,6 @@
 /*
 
-Copyright (c) 2000-2018 Board of Trustees of Leland Stanford Jr. University.
+Copyright (c) 2000-2019 Board of Trustees of Leland Stanford Jr. University.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -48,6 +48,7 @@ import org.lockss.extractor.MetadataField;
 import org.lockss.extractor.MetadataTarget;
 import org.lockss.metadata.MetadataDbManager;
 import org.lockss.metadata.MetadataManager;
+import org.lockss.metadata.query.MetadataQueryManager;
 import org.lockss.metadata.extractor.MetadataExtractorManager.PrioritizedAuId;
 import org.lockss.metadata.extractor.job.JobDbManager;
 import org.lockss.metadata.extractor.job.JobManager;
@@ -64,6 +65,7 @@ public class TestMetadataExtractorManager extends LockssTestCase {
 
   private SimulatedArchivalUnit sau0, sau1, sau2, sau3, sau4;
   private MockLockssDaemon theDaemon;
+  private MetadataQueryManager mdqManager;
   private MetadataExtractorManager mdxManager;
   private MetadataExtractorManagerSql mdxManagerSql;
   private PluginManager pluginManager;
@@ -114,6 +116,11 @@ public class TestMetadataExtractorManager extends LockssTestCase {
     theDaemon.setMetadataManager(mdManager);
     mdManager.initService(theDaemon);
     mdManager.startService();
+
+    mdqManager = new MetadataQueryManager();
+    theDaemon.setManagerByType(MetadataQueryManager.class, mdqManager);
+    mdqManager.initService(theDaemon);
+    mdqManager.startService();
 
     theDaemon.setManagerByType(JobManager.class, new JobManager());
     theDaemon.setManagerByType(JobDbManager.class, new JobDbManager());
