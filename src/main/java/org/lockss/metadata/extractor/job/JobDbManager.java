@@ -210,6 +210,7 @@ public class JobDbManager extends DbManager implements ConfigurableManager {
 			Configuration.Differences changedKeys) {
     final String DEBUG_HEADER = "setConfig(): ";
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Starting...");
+    super.setConfig(config, prevConfig, changedKeys);
 
     if (changedKeys.contains(PREFIX)) {
       // Update the reconfigured parameters.
@@ -281,14 +282,15 @@ public class JobDbManager extends DbManager implements ConfigurableManager {
    * Provides the full name of the database to be used.
    * 
    * @param config
-   *          A Configuration that includes the simple name of the database.
+   *          A Configuration that may include the simple name of the database.
    * @return a String with the full name of the database.
    */
   @Override
   protected String getDataSourceDatabaseName(Configuration config) {
     // Return the configured database name.
-    return getFullDataSourceDatabaseName(config.get(PARAM_DATASOURCE_DATABASENAME,
-	"Lockss" + this.getClass().getSimpleName()));
+    return getFullDataSourceDatabaseName(config.get(
+	PARAM_DATASOURCE_DATABASENAME,
+	getDatabaseNamePrefix() + this.getClass().getSimpleName()));
   }
 
   /**
