@@ -1,6 +1,6 @@
 /*
 
-Copyright (c) 2013-2018 Board of Trustees of Leland Stanford Jr. University,
+Copyright (c) 2013-2019 Board of Trustees of Leland Stanford Jr. University,
 all rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -40,9 +40,14 @@ import java.util.Collections;
 import java.util.List;
 import java.util.ArrayList;
 import org.lockss.app.LockssDaemon;
+import org.lockss.config.ConfigManager;
+import org.lockss.config.Configuration;
+import org.lockss.config.Configuration.Callback;
 import org.lockss.daemon.LockssRunnable;
 import org.lockss.db.DbException;
 import org.lockss.metadata.MetadataDbManager;
+import org.lockss.metadata.extractor.job.JobAuStatus;
+import org.lockss.metadata.extractor.job.JobManager;
 import org.lockss.plugin.ArchivalUnit;
 import org.lockss.plugin.AuEvent;
 import org.lockss.plugin.AuEventHandler;
@@ -60,6 +65,7 @@ public class MetadataIndexingStarter extends LockssRunnable {
   private final MetadataDbManager dbManager;
   private final MetadataExtractorManager mdxManager;
   private final PluginManager pluginManager;
+  private final JobManager jobManager;
 
   /**
    * Constructor.
@@ -70,14 +76,18 @@ public class MetadataIndexingStarter extends LockssRunnable {
    *          A MetadataExtractorManager with the metadata extractor manager.
    * @param pluginManager
    *          A PluginManager with the plugin manager.
+   * @param jobManager
+   *          A JobManager with the job manager.
    */
   public MetadataIndexingStarter(MetadataDbManager dbManager,
-      MetadataExtractorManager mdxManager, PluginManager pluginManager) {
+      MetadataExtractorManager mdxManager, PluginManager pluginManager,
+      JobManager jobManager) {
     super("MetadataStarter");
 
     this.dbManager = dbManager;
     this.mdxManager = mdxManager;
     this.pluginManager = pluginManager;
+    this.jobManager = jobManager;
   }
 
   /**
@@ -113,7 +123,20 @@ public class MetadataIndexingStarter extends LockssRunnable {
     // Register the event handler to receive archival unit content change
     // notifications and to be able to re-index the database content associated
     // with the archival unit.
+    if (log.isDebug3())
+      log.debug3(DEBUG_HEADER + "Registering ArchivalUnitEventHandler...");
     pluginManager.registerAuEventHandler(new ArchivalUnitEventHandler());
+    if (log.isDebug3())
+      log.debug3(DEBUG_HEADER + "Done registering ArchivalUnitEventHandler.");
+
+    // Register the event handler to receive archival unit configuration change
+    // notifications.
+    if (log.isDebug3()) log.debug3(DEBUG_HEADER
+	+ "Registering ArchivalUnitConfigurationCallback...");
+    ConfigManager.getConfigManager().registerConfigurationCallback(
+	new ArchivalUnitConfigurationCallback());
+    if (log.isDebug3()) log.debug3(DEBUG_HEADER
+	+ "Done registering ArchivalUnitConfigurationCallback.");
 
     log.debug2(DEBUG_HEADER + "Examining AUs");
 
@@ -127,6 +150,8 @@ public class MetadataIndexingStarter extends LockssRunnable {
       // Check whether the AU has not been crawled.
       if (!AuUtil.hasCrawled(au)) {
 	// Yes: Do not index it.
+	if (log.isDebug3())
+	  log.debug3(DEBUG_HEADER + "AU has not been crawled: No indexing.");
 	continue;
       } else {
 	// No: Check whether the plugin's md extractor version is newer
@@ -137,7 +162,13 @@ public class MetadataIndexingStarter extends LockssRunnable {
 	  if (mdxManager.isAuMetadataForObsoletePlugin(conn, au)
 	      || mdxManager.isAuCrawledAndNotExtracted(conn, au)) {
 	    // Yes: index it.
+	    if (log.isDebug3())
+	      log.debug3(DEBUG_HEADER + "AU is to be indexed");
 	    toBeIndexed.add(au);
+	  } else {
+	    // No.
+	    if (log.isDebug3())
+	      log.debug3(DEBUG_HEADER + "AU does not need to be indexed");
 	  }
 	} catch (DbException dbe) {
 	  log.error("Cannot get AU metadata version: " + dbe);
@@ -172,6 +203,8 @@ public class MetadataIndexingStarter extends LockssRunnable {
       }
     }
 
+    log.debug2(DEBUG_HEADER + "Done updating the queue");
+
     // Start the reindexing process.
     try {
       log.info(DEBUG_HEADER + "Starting startReindexing...");
@@ -182,6 +215,8 @@ public class MetadataIndexingStarter extends LockssRunnable {
     } finally {
       MetadataDbManager.safeRollbackAndClose(conn);
     }
+
+    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
   }
 
   /**
@@ -190,127 +225,98 @@ public class MetadataIndexingStarter extends LockssRunnable {
    */
   private class ArchivalUnitEventHandler extends AuEventHandler.Base {
 
-    /** Called after the AU is created. */
+    /**
+     * Called for archival unit creation events.
+     * 
+     * @param event An AuEvent with the archival unit creation event.
+     * @param auId  A String with the identifier of the archival unit involved
+     *              in the event.
+     * @param au    An ArchivalUnit with the archival unit involved in the
+     *              event.
+     */
     @Override
-    public void auCreated(AuEvent event, ArchivalUnit au) {
-      final String DEBUG_HEADER = "auCreated(): ";
-      Connection conn = null;
-      PreparedStatement insertPendingAuBatchStatement = null;
-
-      try {
-        conn = dbManager.getConnection();
-
-        // Mark the AU as active.
-        dbManager.updateAuActiveFlag(conn, au.getAuId(), true);
-        MetadataDbManager.commitOrRollback(conn, log);
-
-        // Remove the AU from the table of unconfigured AUs.
-        mdxManager.getMetadataExtractorManagerSql()
-        .removeFromUnconfiguredAus(conn, au.getAuId());
-
-        insertPendingAuBatchStatement =
-            mdxManager.getInsertPendingAuBatchStatement(conn);
-
-        switch (event.getType()) {
-  	  case StartupCreate:
-  	    log.debug2(DEBUG_HEADER + "StartupCreate for au: " + au);
-
-  	    // Since this handler is installed after daemon startup, this case
-  	    // only occurs rarely, as when an AU is added to au.txt, which is
-  	    // then rescanned by the daemon. If this restores an existing AU
-  	    // that has already been crawled, we schedule it to be added to the
-  	    // metadata database now. Otherwise it will be added through
-  	    // auContentChanged() once the crawl has been completed.
-  	    if (AuUtil.hasCrawled(au)) {
-  	      mdxManager.enableAndAddAuToReindex(au, conn,
-  		  insertPendingAuBatchStatement, event.isInBatch());
-  	    }
-
-  	    break;
-  	  case Create:
-  	    log.debug2(DEBUG_HEADER + "Create for au: " + au);
-
-  	    // This case occurs when the user has added or reactivated an AU
-  	    // through the GUI.
-  	    // If this restores an existing AU that has already crawled, we
-  	    // schedule it to be added to the metadata database now. Otherwise
-  	    // it will be added through auContentChanged() once the crawl has
-  	    // been completed.
-  	    if (AuUtil.getAuState(au) != null && AuUtil.hasCrawled(au)) {
-  	      mdxManager.enableAndAddAuToReindex(au, conn,
-  		  insertPendingAuBatchStatement, event.isInBatch());
-  	    }
-
-  	    break;
-  	  case RestartCreate:
-  	    log.debug2(DEBUG_HEADER + "RestartCreate for au: " + au);
-
-  	    // A new version of the plugin has been loaded. Refresh the metadata
-  	    // only if the feature version of the metadata extractor increased.
-  	    // This requires a full reindex.
-  	    if (mdxManager.isAuMetadataForObsoletePlugin(au)) {
-  	      mdxManager.enableAndAddAuToReindex(au, conn,
-  		  insertPendingAuBatchStatement, event.isInBatch(), true);
-  	    }
-
-  	    break;
-        }
-      } catch (DbException dbe) {
-        log.error("Cannot reindex metadata for " + au.getName(), dbe);
-      } finally {
-	MetadataDbManager.safeCloseStatement(insertPendingAuBatchStatement);
-	MetadataDbManager.safeRollbackAndClose(conn);
-      }
+    public void auCreated(AuEvent event, String auId, ArchivalUnit au) {
+      if (log.isDebug2()) log.debug2("Ignored because it is handled by "
+	  + "ArchivalUnitConfigurationCallback.auConfigChanged()");
     }
 
-    /** Called for AU deleted events. */
+    /**
+     * Called for archival unit removal events.
+     * 
+     * @param event An AuEvent with the archival unit removal event.
+     * @param auId  A String with the identifier of the archival unit involved
+     *              in the event.
+     * @param au    An ArchivalUnit with the archival unit involved in the
+     *              event.
+     */
     @Override
-    public void auDeleted(AuEvent event, ArchivalUnit au) {
-      final String DEBUG_HEADER = "auDeleted(): ";
-      switch (event.getType()) {
-	case Delete:
-	  // This case occurs when the AU is being deleted.
-	  log.debug2(DEBUG_HEADER + "Delete for au: " + au);
+    public void auDeleted(AuEvent event, String auId, ArchivalUnit au) {
+      if (log.isDebug2())
+	log.debug2("event = " + event + ", auId = " + auId + ", au = " + au);
 
-	  // Insert the AU in the table of unconfigured AUs.
-	  mdxManager.persistUnconfiguredAu(au);
+      // TODO: Remove once the tests do not rely on this.
+      if (au != null) {
+	switch (event.getType()) {
+	  case Delete:
+	    // This case occurs when the AU is being deleted.
+	    log.debug2("Delete for auId: " + auId);
 
-	  // Delete the AU metadata.
-	  mdxManager.deleteAuAndReindex(au);
-	  break;
-	case RestartDelete:
-	  // This case occurs when the plugin is about to restart. There is
-	  // nothing to do in this case but wait for the plugin to be
-	  // reactivated and see whether anything needs to be done.
-	  break;
-	case Deactivate:
-	  // This case occurs when the AU is being deactivated.
-	  if (log.isDebug3())
-	    log.debug3(DEBUG_HEADER + "Deactivate for au: " + au);
+	    // Insert the AU in the table of unconfigured AUs.
+	    mdxManager.persistUnconfiguredAu(au);
 
-	  Connection conn = null;
+	    // Delete the AU metadata.
+	    mdxManager.deleteAuAndReindex(au);
+	    break;
+	  case RestartDelete:
+	    // This case occurs when the plugin is about to restart. There is
+	    // nothing to do in this case but wait for the plugin to be
+	    // reactivated and see whether anything needs to be done.
+	    break;
+	  case Deactivate:
+	    // This case occurs when the AU is being deactivated.
+	    if (log.isDebug3()) log.debug3("Deactivate for auId: " + auId);
 
-	  try {
-	    conn = dbManager.getConnection();
+	    Connection conn = null;
 
-	    // Mark the AU as inactive in the database.
-	    dbManager.updateAuActiveFlag(conn, au.getAuId(), false);
-	    MetadataDbManager.commitOrRollback(conn, log);
-	  } catch (DbException dbe) {
-	    log.error("Cannot deactivate AU " + au.getName(), dbe);
-	  } finally {
-	    MetadataDbManager.safeRollbackAndClose(conn);
-	  }
+	    try {
+	      conn = dbManager.getConnection();
 
-	  break;
+	      // Mark the AU as inactive in the database.
+	      dbManager.updateAuActiveFlag(conn, auId, false);
+	      MetadataDbManager.commitOrRollback(conn, log);
+	    } catch (DbException dbe) {
+	      log.error("Cannot deactivate AU " + au.getName(), dbe);
+	    } finally {
+	      MetadataDbManager.safeRollbackAndClose(conn);
+	    }
+
+	    break;
+	  default:
+	}
+      } else {
+	if (log.isDebug3()) log.debug3("Ignored because it is handled by "
+	    + "ArchivalUnitConfigurationCallback.auConfigRemoved()");
       }
+
+      if (log.isDebug2()) log.debug2("Done.");
     }
 
-    /** Called for AU changed events */
+    /**
+     * Called for archival unit content change events.
+     * 
+     * @param event An AuEvent with the archival unit content change event.
+     * @param auId  A String with the identifier of the archival unit involved
+     *              in the event.
+     * @param au    An ArchivalUnit with the archival unit involved in the
+     *              event.
+     * @param info  An AuEvent.ContentChangeInfo with information about the
+     *              event.
+     */
     @Override
-    public void auContentChanged(AuEvent event, ArchivalUnit au,
+    public void auContentChanged(AuEvent event, String auId, ArchivalUnit au,
 	AuEvent.ContentChangeInfo info) {
-      final String DEBUG_HEADER = "auContentChanged(): ";
+      if (log.isDebug2()) log.debug2("event = " + event + ", auId = " + auId
+	  + ", au = " + au + ", info = " + info);
 
       switch (event.getType()) {
 	case ContentChanged:
@@ -318,26 +324,158 @@ public class MetadataIndexingStarter extends LockssRunnable {
 	  // This code assumes that a new crawl will simply add new metadata and
 	  // not change existing metadata. Otherwise,
 	  // deleteOrRestartAu(au, true) should be called.
-  	  log.debug2(DEBUG_HEADER + "ContentChanged for au: " + au);
+  	  if (log.isDebug3()) {
+  	    log.debug3("ContentChanged for auId: " + auId);
+  	    log.debug3("info.isComplete() = " + info.isComplete());
+  	  }
+
 	  if (info.isComplete()) {
 	    Connection conn = null;
 	    PreparedStatement insertPendingAuBatchStatement = null;
 
 	    try {
-	      conn = dbManager.getConnection();
-	      insertPendingAuBatchStatement =
-		  mdxManager.getInsertPendingAuBatchStatement(conn);
-	      mdxManager.enableAndAddAuToReindex(au, conn,
-		  insertPendingAuBatchStatement, event.isInBatch());
+  	      boolean fullReindex = true;
+
+  	      if (au != null) {
+  		fullReindex = mdxManager.isAuMetadataForObsoletePlugin(au);
+  		if (log.isDebug3()) log.debug3("fullReindex = " + fullReindex);
+  	      }
+
+  	      JobAuStatus jobAuStatus =
+  		  jobManager.scheduleMetadataExtraction(auId, fullReindex);
+  	      log.info("Scheduled metadata extraction job: " + jobAuStatus);
+
+  	      // TODO:Remove once the tests do not rely on this.
+  	      if (au != null) {
+  		conn = dbManager.getConnection();
+  		insertPendingAuBatchStatement =
+  		    mdxManager.getInsertPendingAuBatchStatement(conn);
+  		mdxManager.enableAndAddAuToReindex(au, conn,
+  		    insertPendingAuBatchStatement, event.isInBatch());
+  	      }
 	    } catch (DbException dbe) {
 	      log.error("Cannot reindex metadata for " + au.getName(), dbe);
+	    } catch (Exception e) {
+	      log.error("Cannot reindex metadata for " + auId, e);
 	    } finally {
-	      MetadataDbManager
-	      .safeCloseStatement(insertPendingAuBatchStatement);
-	      MetadataDbManager.safeRollbackAndClose(conn);
+  	      if (au != null) {
+  		MetadataDbManager
+  		.safeCloseStatement(insertPendingAuBatchStatement);
+  		MetadataDbManager.safeRollbackAndClose(conn);
+  	      }
 	    }
+	  } else {
+	    if (log.isDebug3())
+	      log.debug3("Skipping because info.isComplete() is false");
 	  }
+
+	  break;
+	default:
       }
+
+      if (log.isDebug2()) log.debug2("Done.");
+    }
+  }
+
+  /**
+   * Callback handler to receive configuration change notifications.
+   */
+  private class ArchivalUnitConfigurationCallback implements Callback {
+    /**
+     * Called when something in the configuration has changed.
+     * 
+     * It is called after the new configuration is installed as current, as well
+     * as upon registration (if there is a current configuration at the time).
+     * 
+     * @param newConfig A Configuration with the new (just installed)
+     *                  <code>Configuration</code>.
+     * @param oldConfig A Configuration with the previous
+     *                  <code>Configuration</code>, or null if there was no
+     *                  previous configuration.
+     * @param changes   A Configuration.Differences with the set of
+     *                  configuration keys whose value has changed.
+     */
+    public void configurationChanged(Configuration newConfig,
+				     Configuration oldConfig,
+				     Configuration.Differences changes) {
+      if (log.isDebug2()) log.debug2("Ignored");
+    }
+
+    /**
+     * Called when an archival unit configuration has been created anew or
+     * changed.
+     * 
+     * @param auId A String with the identifier of the archival unit for which
+     *             the configuration has been created anew or changed.
+     */
+    public void auConfigChanged(String auId) {
+      if (log.isDebug2()) log.debug2("auId = " + auId);
+
+      Connection conn = null;
+      PreparedStatement insertPendingAuBatchStatement = null;
+
+      try {
+        conn = dbManager.getConnection();
+
+        // Mark the AU as active.
+        dbManager.updateAuActiveFlag(conn, auId, true);
+        MetadataDbManager.commitOrRollback(conn, log);
+
+        // Remove the AU from the table of unconfigured AUs.
+        mdxManager.getMetadataExtractorManagerSql()
+        .removeFromUnconfiguredAus(conn, auId);
+
+        // This case occurs when the user has added or reactivated an AU
+        // through the GUI.
+        // If this restores an existing AU that has already crawled, we
+        // schedule it to be added to the metadata database now. Otherwise
+        // it will be added through auContentChanged() once the crawl has
+        // been completed.
+        // TODO: How to determine the AuState or whether the AU has been crawled?
+//        if (AuUtil.getAuState(au) != null && AuUtil.hasCrawled(au)) {
+//          // TODO: Fix to pass AUId,not AU.
+//          boolean fullReindex = mdxManager.isAuMetadataForObsoletePlugin(au);
+//          if (log.isDebug3()) log.debug3("fullReindex = " + fullReindex);
+//
+//          JobAuStatus jobAuStatus =
+//              jobManager.scheduleMetadataExtraction(auId, fullReindex);
+//	    log.info("Scheduled metadata extraction job: " + jobAuStatus);
+//        } else {
+//          if (log.isDebug3()) log.debug3("Skipping because "
+//              + "AuUtil.getAuState(au) == null || !AuUtil.hasCrawled(au)");
+//        }
+      } catch (DbException dbe) {
+        log.error("Cannot reindex metadata for " + auId, dbe);
+      } catch (Exception e) {
+        log.error("Cannot reindex metadata for " + auId, e);
+      } finally {
+	MetadataDbManager.safeRollbackAndClose(conn);
+      }
+
+      if (log.isDebug2()) log.debug2("Done");
+    }
+
+    /**
+     * Called when an archival unit configuration has been deleted.
+     * 
+     * @param auId A String with the identifier of the archival unit for which
+     *             the configuration has been deleted.
+     */
+    public void auConfigRemoved(String auId) {
+      if (log.isDebug2()) log.debug2("auId = " + auId);
+
+      try {
+	// Insert the AU in the table of unconfigured AUs.
+	mdxManager.persistUnconfiguredAu(auId);
+
+	// Schedule a job to remove the archival unit metadatafromthe database.
+	JobAuStatus jobAuStatus = jobManager.scheduleMetadataRemoval(auId);
+	log.info("Scheduled metadata removal job: " + jobAuStatus);
+      } catch (Exception e) {
+	log.error("Cannot delete metadata for " + auId, e);
+      }
+
+      if (log.isDebug2()) log.debug2("Done");
     }
   }
 }

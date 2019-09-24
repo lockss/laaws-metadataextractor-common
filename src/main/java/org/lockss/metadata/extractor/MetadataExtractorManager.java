@@ -48,7 +48,7 @@ import java.util.Set;
 import org.lockss.app.BaseLockssManager;
 import org.lockss.app.ConfigurableManager;
 import org.lockss.app.LockssApp;
-import org.lockss.config.*;
+import org.lockss.config.Configuration;
 import org.lockss.config.Configuration.Differences;
 import org.lockss.daemon.LockssRunnable;
 import org.lockss.daemon.status.StatusService;
@@ -415,7 +415,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    */
   void startStarter() {
     MetadataIndexingStarter starter =
-	new MetadataIndexingStarter(dbManager, this, pluginMgr);
+	new MetadataIndexingStarter(dbManager, this, pluginMgr, jobMgr);
     new Thread(starter).start();
   }
 
@@ -1606,10 +1606,8 @@ public class MetadataExtractorManager extends BaseLockssManager implements
   protected void notifyStartReindexingAu(ArchivalUnit au) {
     final String DEBUG_HEADER = "notifyStartReindexingAu(): ";
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "au = " + au);
-
-    if (onDemandMetadataExtractionOnly) {
-      jobMgr.handlePutAuJobStartEvent(au.getAuId());
-    }
+    jobMgr.handlePutAuJobStartEvent(au.getAuId());
+    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done");
   }
 
   /**
@@ -1631,9 +1629,8 @@ public class MetadataExtractorManager extends BaseLockssManager implements
       log.debug2(DEBUG_HEADER + "exception = " + exception);
     }
 
-    if (onDemandMetadataExtractionOnly) {
-      jobMgr.handlePutAuJobFinishEvent(au.getAuId(), status, exception);
-    }
+    jobMgr.handlePutAuJobFinishEvent(au.getAuId(), status, exception);
+    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done");
   }
 
   /**
@@ -1645,10 +1642,8 @@ public class MetadataExtractorManager extends BaseLockssManager implements
   protected void notifyStartAuMetadataRemoval(ArchivalUnit au) {
     final String DEBUG_HEADER = "notifyStartAuMetadataRemoval(): ";
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "au = " + au);
-
-    if (onDemandMetadataExtractionOnly) {
-      jobMgr.handleDeleteAuJobStartEvent(au.getAuId());
-    }
+    jobMgr.handleDeleteAuJobStartEvent(au.getAuId());
+    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done");
   }
 
   /**
@@ -1671,9 +1666,8 @@ public class MetadataExtractorManager extends BaseLockssManager implements
       log.debug2(DEBUG_HEADER + "exception = " + exception);
     }
 
-    if (onDemandMetadataExtractionOnly) {
-      jobMgr.handleDeleteAuJobFinishEvent(au.getAuId(), status, exception);
-    }
+    jobMgr.handleDeleteAuJobFinishEvent(au.getAuId(), status, exception);
+    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done");
   }
 
   /**
@@ -2434,22 +2428,30 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    *          An ArchivalUnit with the Archival Unit.
    */
   void persistUnconfiguredAu(ArchivalUnit au) {
+    persistUnconfiguredAu(au.getAuId());
+  }
+
+  /**
+   * Adds an Archival Unit to the table of unconfigured Archival Units.
+   * 
+   * @param auId
+   *          A String with the Archival Unit identifier.
+   */
+  void persistUnconfiguredAu(String auId) {
     final String DEBUG_HEADER = "persistUnconfiguredAu(): ";
-    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "au = " + au);
+    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "auId = " + auId);
 
     Connection conn = null;
-    String auId = null;
 
     try {
       conn = dbManager.getConnection();
 
       if (conn == null) {
 	log.error("Cannot connect to database - Cannot insert archival unit "
-	    + au + " in unconfigured table");
+	    + auId + " in unconfigured table");
 	return;
       }
 
-      auId = au.getAuId();
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auId = " + auId);
 
       if (!mdManager.isAuInUnconfiguredAuTable(conn, auId)) {

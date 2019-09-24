@@ -33,6 +33,7 @@ package org.lockss.metadata.extractor;
 
 import static org.lockss.metadata.extractor.MetadataExtractorManager.*;
 import static org.lockss.metadata.extractor.MetadataManagerStatusAccessor.*;
+import static org.lockss.metadata.extractor.job.JobManager.*;
 import static org.lockss.metadata.SqlConstants.*;
 import java.io.*;
 import java.sql.Connection;
@@ -71,6 +72,8 @@ public class TestMetadataExtractorManager extends LockssTestCase {
   private PluginManager pluginManager;
   private MetadataDbManager dbManager;
   private MetadataManager mdManager;
+  private JobManager jobManager;
+  private JobDbManager jobDbManager;
 
   /** set of AuIds of AUs reindexed by the MetadataManager */
   Set<String> ausReindexed = new HashSet<String>();
@@ -83,6 +86,8 @@ public class TestMetadataExtractorManager extends LockssTestCase {
     String tempDirPath = setUpDiskSpace();
 
     ConfigurationUtil.addFromArgs(PARAM_INDEXING_ENABLED, "true");
+    ConfigurationUtil.addFromArgs(PARAM_JOBMANAGER_ENABLED, "true");
+    ConfigurationUtil.addFromArgs(PARAM_SLEEP_DELAY_SECONDS, "2");
 
     theDaemon = getMockLockssDaemon();
     theDaemon.getAlertManager();
@@ -122,9 +127,6 @@ public class TestMetadataExtractorManager extends LockssTestCase {
     mdqManager.initService(theDaemon);
     mdqManager.startService();
 
-    theDaemon.setManagerByType(JobManager.class, new JobManager());
-    theDaemon.setManagerByType(JobDbManager.class, new JobDbManager());
-
     mdxManager = new MetadataExtractorManager() {
       /**
        * Notify listeners that an AU has been deleted
@@ -132,6 +134,7 @@ public class TestMetadataExtractorManager extends LockssTestCase {
        * @param articleCount the number of articles deleted for the AU
        */
       protected void notifyDeletedAu(String auId, int articleCount) {
+        log.info("Deleted auId " + auId + ", articleCount = " + articleCount);
 	synchronized (articlesDeleted) {
 	  articlesDeleted[0] += articleCount;
 	  articlesDeleted.notifyAll();
@@ -166,6 +169,17 @@ public class TestMetadataExtractorManager extends LockssTestCase {
 
     theDaemon.setManagerByType(MetadataExtractorManager.class, mdxManager);
     mdxManager.initService(theDaemon);
+
+    jobDbManager = new JobDbManager();
+    theDaemon.setManagerByType(JobDbManager.class, jobDbManager);
+    jobDbManager.initService(theDaemon);
+    jobDbManager.startService();
+
+    jobManager = new JobManager();
+    theDaemon.setManagerByType(JobManager.class, jobManager);
+    jobManager.initService(theDaemon);
+    jobManager.startService();
+
     mdxManager.startService();
 
     mdxManagerSql = mdxManager.getMetadataExtractorManagerSql();
