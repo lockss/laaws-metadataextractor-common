@@ -477,8 +477,10 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 
 	if (isAppInited() && !onDemandMetadataExtractionOnly) {
 	  processAbortPriorities();
-	  // process queued AUs in case any are newly eligible
-	  startReindexing();
+	  // process queued AUs in case any are newly eligible if initialized.
+	  if (dbManager != null) {
+	    startReindexing();
+	  }
 	}
       }
 

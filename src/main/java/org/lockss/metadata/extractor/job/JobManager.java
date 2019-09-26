@@ -1,6 +1,6 @@
 /*
 
-Copyright (c) 2016-2018 Board of Trustees of Leland Stanford Jr. University,
+Copyright (c) 2016-2019 Board of Trustees of Leland Stanford Jr. University,
 all rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -556,10 +556,9 @@ public class JobManager extends BaseLockssDaemonManager implements
 	int markedJobs = -1;
 
 	if (status == ReindexingStatus.Success) {
-	  markedJobs = jobManagerSql.markJobAsDone(conn, jobSeq, "Success");
+	  markedJobs = markJobAsDone(conn, jobSeq, "Success");
 	} else {
-	  markedJobs = jobManagerSql.markJobAsDone(conn, jobSeq,
-	      "Failure: " + exception);
+	  markedJobs = markJobAsDone(conn, jobSeq, "Failure: " + exception);
 	}
 
 	if (log.isDebug3())
@@ -665,10 +664,9 @@ public class JobManager extends BaseLockssDaemonManager implements
 	int markedJobs = -1;
 
 	if (status == ReindexingStatus.Success) {
-	  markedJobs = jobManagerSql.markJobAsDone(conn, jobSeq, "Success");
+	  markedJobs = markJobAsDone(conn, jobSeq, "Success");
 	} else {
-	  markedJobs = jobManagerSql.markJobAsDone(conn, jobSeq,
-	      "Failure: " + exception);
+	  markedJobs = markJobAsDone(conn, jobSeq, "Failure: " + exception);
 	}
 
 	if (log.isDebug3())
@@ -919,5 +917,20 @@ public class JobManager extends BaseLockssDaemonManager implements
 
     if (log.isDebug2()) log.debug2("jobSeq = " + jobSeq);
     return jobSeq;
+  }
+
+  /**
+   * Provides an Archival Unit job.
+   * 
+   * @param conn
+   *          A Connection with the database connection to be used.
+   * @param auId
+   *          A String with the Archival Unit identifier.
+   * @return a JobAuStatus with the created metadata removal job properties.
+   * @throws DbException
+   *           if any problem occurred accessing the database.
+   */
+  public JobAuStatus getAuJob(Connection conn, String auId) throws DbException {
+    return jobManagerSql.getAuJob(conn, auId);
   }
 }

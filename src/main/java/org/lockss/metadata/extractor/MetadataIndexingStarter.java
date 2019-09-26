@@ -184,21 +184,21 @@ public class MetadataIndexingStarter extends LockssRunnable {
       if (log.isDebug3())
 	log.debug3(DEBUG_HEADER + "Pending AU = " + au.getName());
 
+      String auId = au.getAuId();
+      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auId = " + auId);
+
       try {
       	// Determine whether the AU needs to be fully reindexed.
-	boolean fullReindex = mdxManager.isAuMetadataForObsoletePlugin(conn, au);
+	boolean fullReindex =
+	    mdxManager.isAuMetadataForObsoletePlugin(conn, au);
 	if (log.isDebug3())
 	  log.debug3(DEBUG_HEADER + "fullReindex = " + fullReindex);
 
-   	// Add the AU to the table of pending AUs, if not already there.
-	mdxManager.addToPendingAusIfNotThere(conn, Collections.singleton(au),
-	    fullReindex);
-	MetadataDbManager.commitOrRollback(conn, log);
-	log.debug2(DEBUG_HEADER + "Queue updated");
-      } catch (DbException dbe) {
-	log.error("Cannot add to pending AUs table \"" + PENDING_AU_TABLE
-	    + "\"", dbe);
-	MetadataDbManager.safeRollbackAndClose(conn);
+	JobAuStatus jobAuStatus =
+	    jobManager.scheduleMetadataExtraction(auId, fullReindex);
+	log.info("Scheduled metadata extraction job: " + jobAuStatus);
+      } catch (Exception e) {
+	log.error("Cannot reindex metadata for " + auId, e);
 	return;
       }
     }
@@ -330,9 +330,6 @@ public class MetadataIndexingStarter extends LockssRunnable {
   	  }
 
 	  if (info.isComplete()) {
-	    Connection conn = null;
-	    PreparedStatement insertPendingAuBatchStatement = null;
-
 	    try {
   	      boolean fullReindex = true;
 
@@ -344,25 +341,8 @@ public class MetadataIndexingStarter extends LockssRunnable {
   	      JobAuStatus jobAuStatus =
   		  jobManager.scheduleMetadataExtraction(auId, fullReindex);
   	      log.info("Scheduled metadata extraction job: " + jobAuStatus);
-
-  	      // TODO:Remove once the tests do not rely on this.
-  	      if (au != null) {
-  		conn = dbManager.getConnection();
-  		insertPendingAuBatchStatement =
-  		    mdxManager.getInsertPendingAuBatchStatement(conn);
-  		mdxManager.enableAndAddAuToReindex(au, conn,
-  		    insertPendingAuBatchStatement, event.isInBatch());
-  	      }
-	    } catch (DbException dbe) {
-	      log.error("Cannot reindex metadata for " + au.getName(), dbe);
 	    } catch (Exception e) {
 	      log.error("Cannot reindex metadata for " + auId, e);
-	    } finally {
-  	      if (au != null) {
-  		MetadataDbManager
-  		.safeCloseStatement(insertPendingAuBatchStatement);
-  		MetadataDbManager.safeRollbackAndClose(conn);
-  	      }
 	    }
 	  } else {
 	    if (log.isDebug3())
@@ -409,50 +389,7 @@ public class MetadataIndexingStarter extends LockssRunnable {
      *             the configuration has been created anew or changed.
      */
     public void auConfigChanged(String auId) {
-      if (log.isDebug2()) log.debug2("auId = " + auId);
-
-      Connection conn = null;
-      PreparedStatement insertPendingAuBatchStatement = null;
-
-      try {
-        conn = dbManager.getConnection();
-
-        // Mark the AU as active.
-        dbManager.updateAuActiveFlag(conn, auId, true);
-        MetadataDbManager.commitOrRollback(conn, log);
-
-        // Remove the AU from the table of unconfigured AUs.
-        mdxManager.getMetadataExtractorManagerSql()
-        .removeFromUnconfiguredAus(conn, auId);
-
-        // This case occurs when the user has added or reactivated an AU
-        // through the GUI.
-        // If this restores an existing AU that has already crawled, we
-        // schedule it to be added to the metadata database now. Otherwise
-        // it will be added through auContentChanged() once the crawl has
-        // been completed.
-        // TODO: How to determine the AuState or whether the AU has been crawled?
-//        if (AuUtil.getAuState(au) != null && AuUtil.hasCrawled(au)) {
-//          // TODO: Fix to pass AUId,not AU.
-//          boolean fullReindex = mdxManager.isAuMetadataForObsoletePlugin(au);
-//          if (log.isDebug3()) log.debug3("fullReindex = " + fullReindex);
-//
-//          JobAuStatus jobAuStatus =
-//              jobManager.scheduleMetadataExtraction(auId, fullReindex);
-//	    log.info("Scheduled metadata extraction job: " + jobAuStatus);
-//        } else {
-//          if (log.isDebug3()) log.debug3("Skipping because "
-//              + "AuUtil.getAuState(au) == null || !AuUtil.hasCrawled(au)");
-//        }
-      } catch (DbException dbe) {
-        log.error("Cannot reindex metadata for " + auId, dbe);
-      } catch (Exception e) {
-        log.error("Cannot reindex metadata for " + auId, e);
-      } finally {
-	MetadataDbManager.safeRollbackAndClose(conn);
-      }
-
-      if (log.isDebug2()) log.debug2("Done");
+      if (log.isDebug2()) log.debug2("Ignored");
     }
 
     /**
