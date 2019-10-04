@@ -294,10 +294,10 @@ public class MetadataExtractorManager extends BaseLockssManager implements
       DEFAULT_PRIORTIZE_INDEXING_NEW_AUS;
   
   // The number of successful reindexing operations.
-  private long successfulReindexingCount = 0;
+  private long successfulReindexingCount = -1;
 
   // The number of failed reindexing operations.
-  private long failedReindexingCount = 0;
+  private long failedReindexingCount = -1;
 
   private int maxReindexingTaskHistory = DEFAULT_HISTORY_MAX;
 
@@ -1060,25 +1060,44 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * @return a long with the number of active reindexing tasks.
    */
   long getActiveReindexingCount() {
-    return activeReindexingTasks.size();
+    try {
+      return jobMgr.getReindexingJobsCount();
+    } catch (DbException dbe) {
+      log.error("getActiveReindexingCount", dbe);
+    }
+    return 0;
   }
 
   /**
-   * Provides the number of succesful reindexing operations.
+   * Provides the number of successful reindexing operations.
    * 
    * @return a long with the number of successful reindexing operations.
    */
   long getSuccessfulReindexingCount() {
-    return this.successfulReindexingCount;
+    if (successfulReindexingCount < 0) {
+      try {
+	successfulReindexingCount = jobMgr.getSuccessfulReindexingJobsCount();
+      } catch (DbException ex) {
+        log.error("getSuccessfulReindexingCount", ex);
+      }
+    }
+    return (successfulReindexingCount < 0) ? 0 : successfulReindexingCount;
   }
 
   /**
-   * Provides the number of unsuccesful reindexing operations.
+   * Provides the number of unsuccessful reindexing operations.
    * 
    * @return a long the number of unsuccessful reindexing operations.
    */
   long getFailedReindexingCount() {
-    return this.failedReindexingCount;
+    if (failedReindexingCount < 0) {
+      try {
+	failedReindexingCount = jobMgr.getFailedReindexingJobsCount();
+      } catch (DbException ex) {
+        log.error("getFailedReindexingCount", ex);
+      }
+    }
+    return (failedReindexingCount < 0) ? 0 : failedReindexingCount;
   }
 
   /**
@@ -1212,7 +1231,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
       try {
         metadataProviderCount = mdxManagerSql.getProviderCount();
       } catch (DbException ex) {
-        log.error("getPublisherCount", ex);
+	log.error("getProviderCount", ex);
       }
     }
     return (metadataProviderCount < 0) ? 0 : metadataProviderCount;
@@ -1253,7 +1272,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * @return a boolean with the indexing enabled state of this manager.
    */
   boolean isIndexingEnabled() {
-    return isOnDemandMetadataExtractionOnly();
+    return reindexingEnabled;
   }
 
   /**
@@ -1757,7 +1776,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * Increments the count of successful reindexing tasks. 
    */
   void addToSuccessfulReindexingTasks() {
-    this.successfulReindexingCount++;
+    successfulReindexingCount = getSuccessfulReindexingCount() + 1;
   }
 
   synchronized void addToMetadataArticleCount(long count) {
@@ -1774,7 +1793,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * @param task the reindexing task
    */
   void addToFailedReindexingTasks(ReindexingTask task) {
-    failedReindexingCount++;
+    failedReindexingCount = getFailedReindexingCount() + 1;
     
     String taskAuId = task.getAuId();
     synchronized (failedReindexingTasks) {

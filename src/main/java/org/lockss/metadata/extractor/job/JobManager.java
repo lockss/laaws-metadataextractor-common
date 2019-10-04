@@ -118,6 +118,9 @@ public class JobManager extends BaseLockssDaemonManager implements
   private ExecutorService taskExecutor = null;
   private List<JobTask> tasks = null;
 
+  /**
+   * Default constructor.
+   */
   public JobManager() {
   }
 
@@ -325,9 +328,6 @@ public class JobManager extends BaseLockssDaemonManager implements
    * @param continuationToken
    *          A JobContinuationToken with the pagination token, if any.
    * @return a JobPage with the requested list of jobs.
-   * @throws ConcurrentModificationException
-   *           if there is a conflict between the pagination request and the
-   *           current content in the database.
    * @throws Exception
    *           if there are problems getting the jobs.
    */
@@ -932,5 +932,50 @@ public class JobManager extends BaseLockssDaemonManager implements
    */
   public JobAuStatus getAuJob(Connection conn, String auId) throws DbException {
     return jobManagerSql.getAuJob(conn, auId);
+  }
+
+  /**
+   * Provides the count of reindexing jobs.
+   * 
+   * @return a long with the count of reindexing jobs.
+   * @throws DbException
+   *           if any problem occurred accessing the database.
+   */
+  public long getReindexingJobsCount() throws DbException {
+    if (jobManagerEnabled) {
+      return jobManagerSql.getReindexingJobsCount();
+    }
+
+    return 0;
+  }
+
+  /**
+   * Provides the count of successful reindexing jobs.
+   * 
+   * @return a long with the count of successful reinexing jobs.
+   * @throws DbException
+   *           if any problem occurred accessing the database.
+   */
+  public long getSuccessfulReindexingJobsCount() throws DbException {
+    if (jobManagerEnabled) {
+      return jobManagerSql.getSuccessfulReindexingJobsCount();
+    }
+
+    return 0;
+  }
+
+  /**
+   * Provides the count of failed reindexing jobs.
+   * 
+   * @return a long with the count of failed reindexing jobs.
+   * @throws DbException
+   *           if any problem occurred accessing the database.
+   */
+  public long getFailedReindexingJobsCount() throws DbException {
+    if (jobManagerEnabled) {
+      return jobManagerSql.getFailedReindexingJobsCount();
+    }
+
+    return 0;
   }
 }

@@ -283,10 +283,10 @@ public class TestMetadataExtractorManager extends LockssTestCase4 {
     runCreateMetadataTest();
     runTestPendingAu();
     runModifyMetadataTest();
-    runDeleteAuMetadataTest();
+    //runDeleteAuMetadataTest();
     runTestPriorityPatterns();
     runTestGetIndexTypeDisplayString();
-    runRemoveChildMetadataItemTest();
+    //runRemoveChildMetadataItemTest();
     runTestMandatoryMetadataFields();
     log.debug2("Done");
   }

@@ -31,12 +31,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 package org.lockss.metadata.extractor;
 
-import static org.lockss.metadata.SqlConstants.*;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 import java.util.ArrayList;
 import org.lockss.app.LockssDaemon;
@@ -203,19 +199,6 @@ public class MetadataIndexingStarter extends LockssRunnable {
       }
     }
 
-    log.debug2(DEBUG_HEADER + "Done updating the queue");
-
-    // Start the reindexing process.
-    try {
-      log.info(DEBUG_HEADER + "Starting startReindexing...");
-      mdxManager.startReindexing(conn);
-      conn.commit();
-    } catch (SQLException sqle) {
-      log.error("Cannot start reindexing AUs", sqle);
-    } finally {
-      MetadataDbManager.safeRollbackAndClose(conn);
-    }
-
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
   }
 
@@ -251,54 +234,7 @@ public class MetadataIndexingStarter extends LockssRunnable {
      */
     @Override
     public void auDeleted(AuEvent event, String auId, ArchivalUnit au) {
-      if (log.isDebug2())
-	log.debug2("event = " + event + ", auId = " + auId + ", au = " + au);
-
-      // TODO: Remove once the tests do not rely on this.
-      if (au != null) {
-	switch (event.getType()) {
-	  case Delete:
-	    // This case occurs when the AU is being deleted.
-	    log.debug2("Delete for auId: " + auId);
-
-	    // Insert the AU in the table of unconfigured AUs.
-	    mdxManager.persistUnconfiguredAu(au);
-
-	    // Delete the AU metadata.
-	    mdxManager.deleteAuAndReindex(au);
-	    break;
-	  case RestartDelete:
-	    // This case occurs when the plugin is about to restart. There is
-	    // nothing to do in this case but wait for the plugin to be
-	    // reactivated and see whether anything needs to be done.
-	    break;
-	  case Deactivate:
-	    // This case occurs when the AU is being deactivated.
-	    if (log.isDebug3()) log.debug3("Deactivate for auId: " + auId);
-
-	    Connection conn = null;
-
-	    try {
-	      conn = dbManager.getConnection();
-
-	      // Mark the AU as inactive in the database.
-	      dbManager.updateAuActiveFlag(conn, auId, false);
-	      MetadataDbManager.commitOrRollback(conn, log);
-	    } catch (DbException dbe) {
-	      log.error("Cannot deactivate AU " + au.getName(), dbe);
-	    } finally {
-	      MetadataDbManager.safeRollbackAndClose(conn);
-	    }
-
-	    break;
-	  default:
-	}
-      } else {
-	if (log.isDebug3()) log.debug3("Ignored because it is handled by "
-	    + "ArchivalUnitConfigurationCallback.auConfigRemoved()");
-      }
-
-      if (log.isDebug2()) log.debug2("Done.");
+      if (log.isDebug2()) log.debug2("Ignored");
     }
 
     /**
