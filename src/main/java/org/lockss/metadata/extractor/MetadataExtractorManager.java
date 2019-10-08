@@ -1073,7 +1073,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * 
    * @return a long with the number of successful reindexing operations.
    */
-  long getSuccessfulReindexingCount() {
+  synchronized long getSuccessfulReindexingCount() {
     if (successfulReindexingCount < 0) {
       try {
 	successfulReindexingCount = jobMgr.getSuccessfulReindexingJobsCount();
@@ -1089,7 +1089,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * 
    * @return a long the number of unsuccessful reindexing operations.
    */
-  long getFailedReindexingCount() {
+  synchronized long getFailedReindexingCount() {
     if (failedReindexingCount < 0) {
       try {
 	failedReindexingCount = jobMgr.getFailedReindexingJobsCount();
