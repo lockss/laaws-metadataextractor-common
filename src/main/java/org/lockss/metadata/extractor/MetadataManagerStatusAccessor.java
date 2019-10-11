@@ -80,6 +80,7 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
   private static final String AU_COL_NAME = "au";
   private static final String INDEX_TYPE = "index_type";
   private static final String START_TIME_COL_NAME = "start";
+  private static final String TOTAL_DURATION_COL_NAME = "total_dur";
   private static final String INDEX_DURATION_COL_NAME = "index_dur";
   private static final String UPDATE_DURATION_COL_NAME = "update_dur";
   private static final String INDEX_STATUS_COL_NAME = "status";
@@ -109,6 +110,11 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
         new ColumnDescriptor(START_TIME_COL_NAME, "Start Time",
                              ColumnDescriptor.TYPE_DATE,
                              "Start date and time of indexing operation"),
+        new ColumnDescriptor(TOTAL_DURATION_COL_NAME, "Total Duration",
+                             ColumnDescriptor.TYPE_TIME_INTERVAL,
+                             "Duration of metadata indexing, including"
+                             + " scanning articles, extracting metadata and"
+                             + " updating stored metadata."),
         new ColumnDescriptor(INDEX_DURATION_COL_NAME, "Index Duration",
                              ColumnDescriptor.TYPE_TIME_INTERVAL,
                              "Duration of metadata indexing, including"
@@ -507,6 +513,7 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
 	if (startUpdateTime == 0) {
 	  // task is running but hasn't finished indexing yet
 	  row.put(START_TIME_COL_NAME, startTime);
+	  row.put(TOTAL_DURATION_COL_NAME, curTime-startTime);
 	  row.put(INDEX_DURATION_COL_NAME, curTime-startTime);
 	  row.put(INDEX_STATUS_COL_NAME, "Indexing");
 	  row.put(NUM_INDEXED_COL_NAME, numIndexed);
@@ -516,6 +523,7 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
 	} else {
 	  // task is finished indexing but hasn't finished updating yet
 	  row.put(START_TIME_COL_NAME, startTime);
+	  row.put(TOTAL_DURATION_COL_NAME, curTime-startTime);
 	  row.put(INDEX_DURATION_COL_NAME, startUpdateTime-startTime);
 	  row.put(UPDATE_DURATION_COL_NAME, curTime-startUpdateTime);
 	  row.put(INDEX_STATUS_COL_NAME, "Updating");
@@ -528,6 +536,7 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
       } else {
         // task is finished
         row.put(START_TIME_COL_NAME, startTime);
+        row.put(TOTAL_DURATION_COL_NAME, endTime-startTime);
 
         // Check whether there are separate indexing and updating statistics.
         if (startUpdateTime != 0) {
