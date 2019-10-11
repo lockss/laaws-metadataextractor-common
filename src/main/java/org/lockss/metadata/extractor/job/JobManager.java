@@ -31,6 +31,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 package org.lockss.metadata.extractor.job;
 
+import static org.lockss.metadata.extractor.job.SqlConstants.*;
 import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.Date;
@@ -977,5 +978,61 @@ public class JobManager extends BaseLockssDaemonManager implements
     }
 
     return 0;
+  }
+
+  /**
+   * Provides data for finished reindexing jobs that are started before a given
+   * timestamp.
+   * 
+   * @param maxJobCount
+   *          An int with the maximum number of jobs to return.
+   * @param beforeTime
+   *          A long with the timestamp.
+   * @return a List<Map<String, Object>> with the data for the finished jobs.
+   * @throws DbException
+   *           if any problem occurred accessing the database.
+   */
+  public List<Map<String, Object>> getFinishedReindexingJobsBefore(
+      int maxJobCount, long beforeTime) throws DbException {
+    if (jobManagerEnabled) {
+      return jobManagerSql.getFinishedReindexingJobsBefore(maxJobCount,
+	  beforeTime);
+    }
+
+    return new ArrayList<Map<String, Object>>();
+  }
+
+  /**
+   * Provides data for failed reindexing jobs that are started before a given
+   * timestamp.
+   * 
+   * @param maxJobCount
+   *          An int with the maximum number of jobs to return.
+   * @param beforeTime
+   *          A long with the timestamp.
+   * @return a List<Map<String, Object>> with the data for the failed jobs.
+   * @throws DbException
+   *           if any problem occurred accessing the database.
+   */
+  public List<Map<String, Object>> getFailedReindexingJobsBefore(
+      int maxJobCount, long beforeTime) throws DbException {
+    if (jobManagerEnabled) {
+      return jobManagerSql.getFailedReindexingJobsBefore(maxJobCount,
+	  beforeTime);
+    }
+
+    return new ArrayList<Map<String, Object>>();
+  }
+
+  /**
+   * Provides an indication of whether a job involves a full reindexing task.
+   * 
+   * @param jobTypeSeq An Long with the job type database identifier.
+   * @return a boolean with <code>true</code> if the job involves a full
+   *         reindexing task, <code>false</code> otherwise.
+   */
+  public boolean isFullReindexJob(Long jobTypeSeq) {
+    return jobManagerSql.getJobTypeSeqByName().get(JOB_TYPE_PUT_AU)
+	.equals(jobTypeSeq);
   }
 }

@@ -32,6 +32,12 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 package org.lockss.metadata.extractor;
 
 import static org.lockss.metadata.SqlConstants.*;
+import static org.lockss.metadata.extractor.job.SqlConstants.AU_KEY_COLUMN;
+import static org.lockss.metadata.extractor.job.SqlConstants.END_TIME_COLUMN;
+import static org.lockss.metadata.extractor.job.SqlConstants.JOB_TYPE_SEQ_COLUMN;
+import static org.lockss.metadata.extractor.job.SqlConstants.PLUGIN_ID_COLUMN;
+import static org.lockss.metadata.extractor.job.SqlConstants.START_TIME_COLUMN;
+import static org.lockss.metadata.extractor.job.SqlConstants.STATUS_MESSAGE_COLUMN;
 import java.io.File;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -77,6 +83,9 @@ import org.lockss.plugin.Plugin;
 import org.lockss.plugin.Plugin.Feature;
 import org.lockss.plugin.PluginManager;
 import org.lockss.scheduler.Schedule;
+import org.lockss.state.AuStateBean;
+import org.lockss.state.StateManager;
+import org.lockss.state.SubstanceChecker;
 import org.lockss.util.Constants;
 import org.lockss.util.Logger;
 import org.lockss.util.StringUtil;
@@ -309,6 +318,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 
   private MetadataManager mdManager;
   private JobManager jobMgr;
+  private StateManager stateManager;
 
   private PatternIntMap indexPriorityAuidMap;
 
@@ -380,6 +390,8 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     dbManager = getManagerByType(MetadataDbManager.class);
     mdManager = getManagerByType(MetadataManager.class);
     jobMgr = getManagerByType(JobManager.class);
+    stateManager = getManagerByType(StateManager.class);
+
     try {
       mdxManagerSql = new MetadataExtractorManagerSql(dbManager, this);
     } catch (DbException dbe) {
@@ -1105,8 +1117,146 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * 
    * @return a List<ReindexingTask> of reindexing tasks.
    */
-  List<ReindexingTask> getReindexingTasks() {
-    return new ArrayList<ReindexingTask>(reindexingTaskHistory);
+  List<DisplayReindexingTask> getReindexingTasks() {
+    log.debug2("Invoked");
+    List<DisplayReindexingTask> tasks = new ArrayList<>();
+    int taskCount = 0;
+
+    log.debug3("Running tasks:");
+
+    // Loop through all the tasks in the current history in memory.
+    for (ReindexingTask reindexingTask : reindexingTaskHistory) {
+      // Check whether the task is running.
+      if (reindexingTask.hasStarted() && !reindexingTask.isFinished()) {
+	// Yes: Add it to the list.
+	DisplayReindexingTask task = new DisplayReindexingTask(reindexingTask);
+	if (log.isDebug3()) log.debug3("task = " + task);
+	tasks.add(task);
+
+	// Count the task.
+	taskCount++;
+	if (taskCount == maxReindexingTaskHistory) {
+	  return tasks;
+	}
+      }
+    }
+
+    log.debug3("Pending tasks:");
+
+    try {
+      // Loop through all the pending tasks in the job database.
+      for (Map<String, Object> job : jobMgr.getNotStartedReindexingJobs(
+	  maxReindexingTaskHistory - taskCount)) {
+	// Add it to the list.
+	DisplayReindexingTask task = new DisplayReindexingTask();
+	String auId = PluginManager.generateAuId((
+	    String)job.get(PLUGIN_ID_COLUMN), (String)job.get(AU_KEY_COLUMN));
+	if (log.isDebug3()) log.debug3("auId = " + auId);
+	task.setAuId(auId);
+	String auName = getAuName(auId);
+	task.setAuName(auName);
+	Long jobTypeSeq = (Long) job.get(JOB_TYPE_SEQ_COLUMN);
+	if (log.isDebug3()) log.debug3("jobTypeSeq = " + jobTypeSeq);
+	task.setNeedFullReindex(jobMgr.isFullReindexJob(jobTypeSeq));
+	if (log.isDebug3()) log.debug3("task = " + task);
+	tasks.add(task);
+
+	// Count the task.
+	taskCount++;
+      }
+    } catch (DbException dbe) {
+      log.error("jobMgr.getNotStartedReindexingJobs() threw", dbe);
+    } catch (Exception e) {
+      log.error("getAuName() threw", e);
+    }
+
+    // Done if the list is full.
+    if (taskCount == maxReindexingTaskHistory) {
+      return tasks;
+    }
+
+    log.debug3("Current finished tasks:");
+
+    // Loop through all the finished tasks in the current history in memory.
+    for (ReindexingTask reindexingTask : reindexingTaskHistory) {
+      // Check whether the task is finished.
+      if (reindexingTask.isFinished()) {
+	// Yes: Add it to the list.
+	DisplayReindexingTask task = new DisplayReindexingTask(reindexingTask);
+	tasks.add(task);
+	if (log.isDebug3()) log.debug3("task = " + task);
+
+	// Count the task.
+	taskCount++;
+	if (taskCount == maxReindexingTaskHistory) {
+	  return tasks;
+	}
+      }
+    }
+
+    // Get the database cutoff timestamp to avoid overlapping with in-memory
+    // tasks.
+    long startTime = theApp.getStartTime();
+
+    log.debug3("Older finished tasks:");
+
+    try {
+      // Loop through all the finished tasks in the job database before the
+      // timestamp cutoff.
+      for (Map<String, Object> job : jobMgr.getFinishedReindexingJobsBefore(
+	  maxReindexingTaskHistory - taskCount, startTime)) {
+	// Add it to the list.
+	DisplayReindexingTask task = new DisplayReindexingTask();
+	String auId = PluginManager.generateAuId((
+	    String)job.get(PLUGIN_ID_COLUMN), (String)job.get(AU_KEY_COLUMN));
+	if (log.isDebug3()) log.debug3("auId = " + auId);
+	task.setAuId(auId);
+	String auName = getAuName(auId);
+	task.setAuName(auName);
+	Long jobTypeSeq = (Long) job.get(JOB_TYPE_SEQ_COLUMN);
+	if (log.isDebug3()) log.debug3("jobTypeSeq = " + jobTypeSeq);
+	task.setNeedFullReindex(jobMgr.isFullReindexJob(jobTypeSeq));
+	task.setStartTime((Long) job.get(START_TIME_COLUMN));
+	task.setEndTime((Long) job.get(END_TIME_COLUMN));
+	String statusMessage = (String) job.get(STATUS_MESSAGE_COLUMN);
+	if (log.isDebug3())
+	  log.debug3("statusMessage = '" + statusMessage + "'");
+	ReindexingStatus reindexingStatus = "Success".equals(statusMessage)
+	    ? ReindexingStatus.Success : ReindexingStatus.Failed;
+	if (log.isDebug3())
+	  log.debug3("reindexingStatus = " + reindexingStatus);
+	task.setReindexingStatus(reindexingStatus);
+
+	// Check whether it was a successful run.
+        if (reindexingStatus == ReindexingStatus.Success) {
+          // Yes: Determine whether there is substance.
+          AuStateBean auStateBean = stateManager.getAuStateBean(auId);
+          if (log.isDebug3()) log.debug3("auStateBean = " + auStateBean);
+
+          boolean auNoSubstance =
+              auStateBean.getHasSubstance() == SubstanceChecker.State.No;
+          if (log.isDebug3()) log.debug3("auNoSubstance = " + auNoSubstance);
+
+          task.setAuNoSubstance(auNoSubstance);
+        } else {
+          // No: Set up the failure message.
+          task.setE(new Exception(statusMessage));
+        }
+
+	if (log.isDebug3()) log.debug3("task = " + task);
+	tasks.add(task);
+
+	// Count the task.
+	taskCount++;
+      }
+    } catch (DbException dbe) {
+      log.error("jobMgr.getFinishedReindexingJobsBefore() threw", dbe);
+    } catch (Exception e) {
+      log.error("getAuName() threw", e);
+    }
+
+    if (log.isDebug2()) log.debug2("tasks.size = " + tasks.size());
+    return tasks;
   }
 
   /**
@@ -1115,8 +1265,66 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * 
    * @return a Collection<ReindexingTask> of failed reindexing tasks
    */
-  List<ReindexingTask> getFailedReindexingTasks() {
-    return new ArrayList<ReindexingTask>(failedReindexingTasks);
+  List<DisplayReindexingTask> getFailedReindexingTasks() {
+    List<DisplayReindexingTask> tasks = new ArrayList<>();
+    int taskCount = 0;
+
+    log.debug3("Current failed tasks:");
+
+    // Loop through all the tasks in the current history in memory.
+    for (ReindexingTask reindexingTask : failedReindexingTasks) {
+      // Add it to the list.
+      DisplayReindexingTask task = new DisplayReindexingTask(reindexingTask);
+      tasks.add(task);
+
+      // Count the task.
+      taskCount++;
+      if (taskCount == maxReindexingTaskHistory) {
+	return tasks;
+      }
+    }
+
+    // Get the database cutoff timestamp to avoid overlapping with in-memory
+    // tasks.
+    long startTime = theApp.getStartTime();
+
+    log.debug3("Older failed tasks:");
+
+    try {
+      // Loop through all the failed tasks in the job database before the
+      // timestamp cutoff.
+      for (Map<String, Object> job : jobMgr.getFailedReindexingJobsBefore(
+	  maxReindexingTaskHistory - taskCount, startTime)) {
+	// Add it to the list.
+	DisplayReindexingTask task = new DisplayReindexingTask();
+	String auId = PluginManager.generateAuId((
+	    String)job.get(PLUGIN_ID_COLUMN), (String)job.get(AU_KEY_COLUMN));
+	if (log.isDebug3()) log.debug3("auId = " + auId);
+	task.setAuId(auId);
+	String auName = getAuName(auId);
+	task.setAuName(auName);
+	Long jobTypeSeq = (Long) job.get(JOB_TYPE_SEQ_COLUMN);
+	if (log.isDebug3()) log.debug3("jobTypeSeq = " + jobTypeSeq);
+	task.setNeedFullReindex(jobMgr.isFullReindexJob(jobTypeSeq));
+	task.setStartTime((Long) job.get(START_TIME_COLUMN));
+	task.setEndTime((Long) job.get(END_TIME_COLUMN));
+	task.setReindexingStatus(ReindexingStatus.Failed);
+	String statusMessage = (String) job.get(STATUS_MESSAGE_COLUMN);
+	if (log.isDebug3())
+	  log.debug3("statusMessage = '" + statusMessage + "'");
+        task.setE(new Exception(statusMessage));
+	tasks.add(task);
+
+	// Count the task.
+	taskCount++;
+      }
+    } catch (DbException dbe) {
+      log.error("jobMgr.getFailedReindexingJobsBefore() threw", dbe);
+    } catch (Exception e) {
+      log.error("getAuName() threw", e);
+    }
+
+    return tasks;
   }
 
   /**
@@ -1171,12 +1379,11 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 
 	  auToReindex.isNew = false;
 
-	  String description = (String)job.get(SqlConstants.DESCRIPTION_COLUMN);
+	  Long jobTypeSeq = (Long) job.get(JOB_TYPE_SEQ_COLUMN);
 	  if (log.isDebug3())
-	    log.debug3(DEBUG_HEADER + "description = " + description);
+	    log.debug3(DEBUG_HEADER + "jobTypeSeq = " + jobTypeSeq);
 
-	  boolean needFullReindex =
-	      "Full Metadata Extraction".equals(description);
+	  boolean needFullReindex = jobMgr.isFullReindexJob(jobTypeSeq);
 	  if (log.isDebug3())
 	    log.debug3(DEBUG_HEADER + "needFullReindex = " + needFullReindex);
 	  auToReindex.needFullReindex = needFullReindex;
@@ -2950,5 +3157,48 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "itemCount = " + itemCount);
     return itemCount;
+  }
+
+  /**
+   * Provides the name of an Archival Unit.
+   * 
+   * @param auId
+   *          a String with the Archival Unit identifier.
+   * @return a String with the Archival Unit name.
+   * @throws IllegalArgumentException
+   *           if the Archival Unit does not exist.
+   * @throws Exception
+   *           if there are problems getting the Archival Unit name.
+   */
+  private String getAuName(String auId)
+      throws IllegalArgumentException, Exception {
+    final String DEBUG_HEADER = "getAuName(): ";
+    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "auId = " + auId);
+
+    String message = "Cannot find Archival Unit for auId '" + auId + "'";
+
+    try {
+      // Get the Archival Unit.
+      ArchivalUnit au = pluginMgr.getAuFromId(auId);
+      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "au = " + au);
+
+      // Check whether it does exist.
+      if (au != null) {
+	// Yes: Get its name.
+	String auName = au.getName();
+	if (log.isDebug2()) log.debug2(DEBUG_HEADER + "auName = " + auName);
+	return auName;
+      }
+    } catch (IllegalArgumentException iae) {
+      log.error(message, iae);
+      throw iae;
+    } catch (Exception e) {
+      log.error(message, e);
+      throw e;
+    }
+
+    // It does not exist: Report the problem.
+    log.error(message);
+    throw new IllegalArgumentException(message);
   }
 }
