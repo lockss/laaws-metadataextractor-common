@@ -184,15 +184,7 @@ public class MetadataIndexingStarter extends LockssRunnable {
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auId = " + auId);
 
       try {
-      	// Determine whether the AU needs to be fully reindexed.
-	boolean fullReindex =
-	    mdxManager.isAuMetadataForObsoletePlugin(conn, au);
-	if (log.isDebug3())
-	  log.debug3(DEBUG_HEADER + "fullReindex = " + fullReindex);
-
-	JobAuStatus jobAuStatus =
-	    jobManager.scheduleMetadataExtraction(auId, fullReindex);
-	log.info("Scheduled metadata extraction job: " + jobAuStatus);
+	mdxManager.scheduleMetadataExtraction(au, auId);
       } catch (Exception e) {
 	log.error("Cannot reindex metadata for " + auId, e);
 	return;
@@ -267,16 +259,7 @@ public class MetadataIndexingStarter extends LockssRunnable {
 
 	  if (info.isComplete()) {
 	    try {
-  	      boolean fullReindex = true;
-
-  	      if (au != null) {
-  		fullReindex = mdxManager.isAuMetadataForObsoletePlugin(au);
-  		if (log.isDebug3()) log.debug3("fullReindex = " + fullReindex);
-  	      }
-
-  	      JobAuStatus jobAuStatus =
-  		  jobManager.scheduleMetadataExtraction(auId, fullReindex);
-  	      log.info("Scheduled metadata extraction job: " + jobAuStatus);
+	      mdxManager.scheduleMetadataExtraction(au, auId);
 	    } catch (Exception e) {
 	      log.error("Cannot reindex metadata for " + auId, e);
 	    }

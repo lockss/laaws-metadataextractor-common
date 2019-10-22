@@ -74,6 +74,7 @@ import org.lockss.metadata.MetadataManager;
 import org.lockss.metadata.ArticleMetadataBuffer;
 import org.lockss.metadata.ArticleMetadataBuffer.ArticleMetadataInfo;
 import org.lockss.metadata.AuMetadataRecorder;
+import org.lockss.metadata.extractor.job.JobAuStatus;
 import org.lockss.metadata.extractor.job.JobManager;
 import org.lockss.metadata.extractor.job.SqlConstants;
 import org.lockss.metadata.query.MetadataQueryManager;
@@ -1072,12 +1073,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * @return a long with the number of active reindexing tasks.
    */
   long getActiveReindexingCount() {
-    try {
-      return jobMgr.getReindexingJobsCount();
-    } catch (DbException dbe) {
-      log.error("getActiveReindexingCount", dbe);
-    }
-    return 0;
+    return activeReindexingTasks.size();
   }
 
   /**
@@ -3200,5 +3196,41 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     // It does not exist: Report the problem.
     log.error(message);
     throw new IllegalArgumentException(message);
+  }
+
+  /**
+   * Schedules the extraction and storage of all or part of the metadata for an
+   * Archival Unit.
+   * 
+   * @param au
+   *          An ArchivalUnit with the AU involved.
+   * @param auId
+   *          A String with the Archival Unit identifier.
+   * @throws Exception
+   *           if there are problems scheduling the metadata extraction.
+   */
+  public void scheduleMetadataExtraction(ArchivalUnit au, String auId)
+      throws Exception {
+    final String DEBUG_HEADER = "scheduleMetadataExtraction(): ";
+    if (log.isDebug2()) {
+      log.debug2(DEBUG_HEADER + "au = " + au);
+      log.debug2(DEBUG_HEADER + "auId = " + auId);
+    }
+
+    try {
+      boolean fullReindex = true;
+
+      if (au != null) {
+	fullReindex = isAuMetadataForObsoletePlugin(au);
+	if (log.isDebug3()) log.debug3("fullReindex = " + fullReindex);
+      }
+
+      JobAuStatus jobAuStatus =
+	  jobMgr.scheduleMetadataExtraction(auId, fullReindex);
+      log.info("Scheduled metadata extraction job: " + jobAuStatus);
+    } catch (Exception e) {
+      log.error("Cannot reindex metadata for " + auId, e);
+      throw e;
+    }
   }
 }
