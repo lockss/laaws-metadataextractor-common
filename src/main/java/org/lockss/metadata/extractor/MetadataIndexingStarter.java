@@ -51,6 +51,7 @@ import org.lockss.plugin.AuUtil;
 import org.lockss.plugin.PluginManager;
 import org.lockss.util.CollectionUtil;
 import org.lockss.util.Logger;
+import org.lockss.util.time.TimeBase;
 
 /**
  * Starts the metadata indexing process.
@@ -62,6 +63,7 @@ public class MetadataIndexingStarter extends LockssRunnable {
   private final MetadataExtractorManager mdxManager;
   private final PluginManager pluginManager;
   private final JobManager jobManager;
+  private final long metadataExtractionCheckInterval;
 
   /**
    * Constructor.
@@ -74,16 +76,20 @@ public class MetadataIndexingStarter extends LockssRunnable {
    *          A PluginManager with the plugin manager.
    * @param jobManager
    *          A JobManager with the job manager.
+   * @param metadataExtractionCheckInterval
+   *          A long with the interval in milliseconds between consecutive runs
+   *          of the metadata extraction check.
    */
   public MetadataIndexingStarter(MetadataDbManager dbManager,
       MetadataExtractorManager mdxManager, PluginManager pluginManager,
-      JobManager jobManager) {
+      JobManager jobManager, long metadataExtractionCheckInterval) {
     super("MetadataStarter");
 
     this.dbManager = dbManager;
     this.mdxManager = mdxManager;
     this.pluginManager = pluginManager;
     this.jobManager = jobManager;
+    this.metadataExtractionCheckInterval = metadataExtractionCheckInterval;
   }
 
   /**
@@ -106,16 +112,6 @@ public class MetadataIndexingStarter extends LockssRunnable {
       }
     }
 
-    // Get a connection to the database.
-    Connection conn;
-
-    try {
-      conn = dbManager.getConnection();
-    } catch (DbException dbe) {
-      log.error("Cannot connect to database -- extraction not started", dbe);
-      return;
-    }
-
     // Register the event handler to receive archival unit content change
     // notifications and to be able to re-index the database content associated
     // with the archival unit.
@@ -133,6 +129,42 @@ public class MetadataIndexingStarter extends LockssRunnable {
 	new ArchivalUnitConfigurationCallback());
     if (log.isDebug3()) log.debug3(DEBUG_HEADER
 	+ "Done registering ArchivalUnitConfigurationCallback.");
+
+    // Loop indefinitely.
+    while (true) {
+      // Schedule the metadata extraction of Archival Units that require it.
+      long beforeTimestamp = TimeBase.nowMs();
+      scheduleNeededMetadataExtractionJobs();
+
+      // Compute the amount of time to wait until the next check.
+      long intervalLeft = metadataExtractionCheckInterval
+	  - (TimeBase.nowMs() - beforeTimestamp);
+
+      long delay = intervalLeft >= 0 ? intervalLeft : 0;
+      if (log.isDebug3()) log.debug3("Sleeping for " + delay + " ms...");
+
+      // Wait until the next metadata extraction check.
+      try {
+	Thread.sleep(delay);
+      } catch (InterruptedException ie) {}
+
+      if (log.isDebug3()) log.debug3("Back from sleep.");
+    }
+  }
+
+  private void scheduleNeededMetadataExtractionJobs() {
+    final String DEBUG_HEADER = "scheduleNeededMetadataExtractionJobs(): ";
+    log.debug2(DEBUG_HEADER + "Starting...");
+
+    // Get a connection to the database.
+    Connection conn;
+
+    try {
+      conn = dbManager.getConnection();
+    } catch (DbException dbe) {
+      log.error("Cannot connect to database -- extraction not started", dbe);
+      return;
+    }
 
     log.debug2(DEBUG_HEADER + "Examining AUs");
 
@@ -171,9 +203,10 @@ public class MetadataIndexingStarter extends LockssRunnable {
 	}
       }
     }
+
     log.debug2(DEBUG_HEADER + "Done examining AUs");
 
-    // Loop in random order through all the AUs to to be added the pending
+    // Loop in random order through all the AUs to to be added to the pending
     // queue.
     for (ArchivalUnit au : (Collection<ArchivalUnit>)
 	    CollectionUtil.randomPermutation(toBeIndexed)) {

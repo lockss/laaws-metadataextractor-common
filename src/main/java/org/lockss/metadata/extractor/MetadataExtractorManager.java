@@ -239,6 +239,19 @@ public class MetadataExtractorManager extends BaseLockssManager implements
       MetadataConstants.MD_REST_PREFIX + "password";
 
   /**
+   * The interval in milliseconds between consecutive runs of the metadata
+   * extraction check.
+   */
+  static final String PARAM_METADATA_EXTRACTION_CHECK_INTERVAL =
+      PREFIX + "metadataExtractionCheckInterval";
+
+  /**
+   * The default interval in milliseconds between consecutive runs of the
+   * metadata extraction check (Daily).
+   */
+  static final long DEFAULT_METADATA_EXTRACTION_CHECK_INTERVAL = Constants.DAY;
+
+  /**
    * Map of running reindexing tasks keyed by their AuIds
    */
   final Map<String, ReindexingTask> activeReindexingTasks =
@@ -356,6 +369,9 @@ public class MetadataExtractorManager extends BaseLockssManager implements
   private boolean onDemandMetadataExtractionOnly =
       DEFAULT_ON_DEMAND_METADATA_EXTRACTION_ONLY;
 
+  private long metadataExtractionCheckInterval =
+      DEFAULT_METADATA_EXTRACTION_CHECK_INTERVAL;
+
   /**
    * No-argument constructor.
    */
@@ -427,8 +443,8 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * registers AuEvent handler and performs initial scan of AUs
    */
   void startStarter() {
-    MetadataIndexingStarter starter =
-	new MetadataIndexingStarter(dbManager, this, pluginMgr, jobMgr);
+    MetadataIndexingStarter starter = new MetadataIndexingStarter(dbManager,
+	this, pluginMgr, jobMgr, metadataExtractionCheckInterval);
     new Thread(starter).start();
   }
 
@@ -473,6 +489,9 @@ public class MetadataExtractorManager extends BaseLockssManager implements
       }
 
       if (isAppInited() && !onDemandMetadataExtractionOnly) {
+	metadataExtractionCheckInterval =
+	    config.getLong(PARAM_METADATA_EXTRACTION_CHECK_INTERVAL,
+		DEFAULT_METADATA_EXTRACTION_CHECK_INTERVAL);
 	boolean doEnable =
 	  config.getBoolean(PARAM_INDEXING_ENABLED, DEFAULT_INDEXING_ENABLED);
 	setIndexingEnabled(doEnable);
