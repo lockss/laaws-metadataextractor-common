@@ -43,8 +43,11 @@ import org.lockss.db.DbException;
 import org.lockss.extractor.*;
 import org.lockss.extractor.ArticleMetadataExtractor.Emitter;
 import org.lockss.extractor.MetadataException.ValidationException;
+import org.lockss.metadata.ArticleMetadataBuffer;
+import org.lockss.metadata.ArticleMetadataBuffer.ArticleMetadataInfo;
+import org.lockss.metadata.AuMetadataRecorder;
 import org.lockss.metadata.MetadataDbManager;
-import org.lockss.metadata.extractor.ArticleMetadataBuffer.ArticleMetadataInfo;
+import org.lockss.metadata.MetadataIndexingException;
 import org.lockss.metadata.extractor.MetadataExtractorManager.ReindexingStatus;
 import org.lockss.plugin.*;
 import org.lockss.scheduler.*;
@@ -155,7 +158,6 @@ public class ReindexingTask extends StepTask {
           null, // TaskCallback.
           null); // Object cookie.
 
-    final String DEBUG_HEADER = "ReindexingTask(): ";
     this.au = theAu;
     this.ae = theAe;
     this.auName = au.getName();
@@ -177,11 +179,20 @@ public class ReindexingTask extends StepTask {
     callback = new ReindexingEventHandler();
   }
 
-  void setWDog(LockssWatchdog watchDog) {
+  /**
+   * Sets the watchdog.
+   * 
+   * @param watchDog
+   *          A LockssWatchdog with the watchdog to be set.
+   */
+  public void setWDog(LockssWatchdog watchDog) {
     this.watchDog = watchDog;
   }
 
-  void pokeWDog() {
+  /**
+   * Refreshes the watchdog for another interval.
+   */
+  public void pokeWDog() {
     watchDog.pokeWDog();
   }
 
@@ -388,14 +399,14 @@ public class ReindexingTask extends StepTask {
    * 
    * @return a long with the number of articles updated by this task.
    */
-  long getUpdatedArticleCount() {
+  public long getUpdatedArticleCount() {
     return updatedArticleCount;
   }
 
   /**
    * Increments by one the number of articles updated by this task.
    */
-  void incrementUpdatedArticleCount() {
+  public void incrementUpdatedArticleCount() {
     this.updatedArticleCount++;
   }
 
@@ -492,21 +503,21 @@ public class ReindexingTask extends StepTask {
     private void validateDataAgainstTdb(ArticleMetadataInfo mdinfo,
         ArchivalUnit au) {
       HashSet<String> isbns = new HashSet<String>();
-      if (mdinfo.isbn != null) {
-        isbns.add(mdinfo.isbn);
+      if (mdinfo.getIsbn() != null) {
+        isbns.add(mdinfo.getIsbn());
       }
 
-      if (mdinfo.eisbn != null) {
-        isbns.add(mdinfo.eisbn);
+      if (mdinfo.getEisbn() != null) {
+        isbns.add(mdinfo.getEisbn());
       }
 
       HashSet<String> issns = new HashSet<String>();
-      if (mdinfo.issn != null) {
-        issns.add(mdinfo.issn);
+      if (mdinfo.getIssn() != null) {
+        issns.add(mdinfo.getIssn());
       }
 
-      if (mdinfo.eissn != null) {
-        issns.add(mdinfo.eissn);
+      if (mdinfo.getEissn() != null) {
+        issns.add(mdinfo.getEissn());
       }
 
       TdbAu tdbau = au.getTdbAu();
@@ -531,99 +542,101 @@ public class ReindexingTask extends StepTask {
       if (tdbau != null) {
         // Validate journal title against the TDB journal title.
         if (tdbauJournalTitle != null) {
-          if (!tdbauJournalTitle.equals(mdinfo.publicationTitle)) {
-            if (mdinfo.publicationTitle == null) {
+          if (!tdbauJournalTitle.equals(mdinfo.getPublicationTitle())) {
+            if (mdinfo.getPublicationTitle() == null) {
               taskWarning("tdb title  is " + tdbauJournalTitle + " for "
                   + tdbauName + " -- metadata title is missing");
             } else {
               taskWarning("tdb title " + tdbauJournalTitle + " for "
                   + tdbauName + " -- does not match metadata journal title "
-                  + mdinfo.publicationTitle);
+                  + mdinfo.getPublicationTitle());
             }
           }
         }
 
         // Validate ISBN against the TDB ISBN.
         if (tdbauIsbn != null) {
-          if (!tdbauIsbn.equals(mdinfo.isbn)) {
+          if (!tdbauIsbn.equals(mdinfo.getIsbn())) {
             isbns.add(tdbauIsbn);
-            if (mdinfo.isbn == null) {
+            if (mdinfo.getIsbn() == null) {
               taskWarning("using tdb isbn " + tdbauIsbn + " for " + tdbauName
                   + " -- metadata isbn missing");
             } else {
               taskWarning("also using tdb isbn " + tdbauIsbn + " for "
                   + tdbauName + " -- different than metadata isbn: "
-                  + mdinfo.isbn);
+                  + mdinfo.getIsbn());
             }
-          } else if (mdinfo.isbn != null) {
+          } else if (mdinfo.getIsbn() != null) {
             taskWarning("tdb isbn missing for " + tdbauName + " -- should be: "
-                + mdinfo.isbn);
+                + mdinfo.getIsbn());
           }
-        } else if (mdinfo.isbn != null) {
+        } else if (mdinfo.getIsbn() != null) {
           if (isTitleInTdb) {
             taskWarning("tdb isbn missing for " + tdbauName + " -- should be: "
-                + mdinfo.isbn);
+                + mdinfo.getIsbn());
           }
         }
 
         // validate ISSN against the TDB ISSN.
         if (tdbauIssn != null) {
-          if (tdbauIssn.equals(mdinfo.eissn) && (mdinfo.issn == null)) {
+          if (tdbauIssn.equals(mdinfo.getEissn())
+              && (mdinfo.getIssn() == null)) {
             taskWarning("tdb print issn " + tdbauIssn + " for " + tdbauName
                 + " -- reported by metadata as eissn");
-          } else if (!tdbauIssn.equals(mdinfo.issn)) {
+          } else if (!tdbauIssn.equals(mdinfo.getIssn())) {
             // add both ISSNs so it can be found either way
             issns.add(tdbauIssn);
-            if (mdinfo.issn == null) {
+            if (mdinfo.getIssn() == null) {
               taskWarning("using tdb print issn " + tdbauIssn + " for "
                   + tdbauName + " -- metadata print issn is missing");
             } else {
               taskWarning("also using tdb print issn " + tdbauIssn + " for "
                   + tdbauName + " -- different than metadata print issn: "
-                  + mdinfo.issn);
+                  + mdinfo.getIssn());
             }
           }
-        } else if (mdinfo.issn != null) {
-          if (mdinfo.issn.equals(tdbauEissn)) {
+        } else if (mdinfo.getIssn() != null) {
+          if (mdinfo.getIssn().equals(tdbauEissn)) {
             taskWarning("tdb eissn " + tdbauEissn + " for " + tdbauName
                 + " -- reported by metadata as print issn");
           } else if (isTitleInTdb) {
             taskWarning("tdb issn missing for " + tdbauName + " -- should be: "
-                + mdinfo.issn);
+                + mdinfo.getIssn());
           }
         }
 
         // Validate EISSN against the TDB EISSN.
         if (tdbauEissn != null) {
-          if (tdbauEissn.equals(mdinfo.issn) && (mdinfo.eissn == null)) {
+          if (tdbauEissn.equals(mdinfo.getIssn())
+              && (mdinfo.getEissn() == null)) {
             taskWarning("tdb eissn " + tdbauEissn + " for " + tdbauName
                 + " -- reported by metadata as print issn");
-          } else if (!tdbauEissn.equals(mdinfo.eissn)) {
+          } else if (!tdbauEissn.equals(mdinfo.getEissn())) {
             // Add both ISSNs so that they can be found either way.
             issns.add(tdbauEissn);
-            if (mdinfo.eissn == null) {
+            if (mdinfo.getEissn() == null) {
               taskWarning("using tdb eissn " + tdbauEissn + " for " + tdbauName
                   + " -- metadata eissn is missing");
             } else {
               taskWarning("also using tdb eissn " + tdbauEissn + " for "
                   + tdbauName + " -- different than metadata eissn: "
-                  + mdinfo.eissn);
+                  + mdinfo.getEissn());
             }
           }
-        } else if (mdinfo.eissn != null) {
-          if (mdinfo.eissn.equals(tdbauIssn)) {
+        } else if (mdinfo.getEissn() != null) {
+          if (mdinfo.getEissn().equals(tdbauIssn)) {
             taskWarning("tdb print issn " + tdbauIssn + " for " + tdbauName
                 + " -- reported by metadata as print eissn");
           } else if (isTitleInTdb) {
             taskWarning("tdb eissn missing for " + tdbauName
-                + " -- should be: " + mdinfo.eissn);
+                + " -- should be: " + mdinfo.getEissn());
           }
         }
 
         // Validate publication date against the TDB year.
-        String pubYear = mdinfo.pubYear;
+        String pubYear = mdinfo.getPubYear();
         if (pubYear != null) {
-          if (!tdbau.includesYear(mdinfo.pubYear)) {
+          if (!tdbau.includesYear(mdinfo.getPubYear())) {
             if (tdbauYear != null) {
               taskWarning("tdb year " + tdbauYear + " for " + tdbauName
                   + " -- does not match metadata year " + pubYear);
@@ -634,8 +647,8 @@ public class ReindexingTask extends StepTask {
           }
         } else {
           pubYear = tdbauStartYear;
-          if (mdinfo.pubYear != null) {
-            taskWarning("using tdb start year " + mdinfo.pubYear + " for "
+          if (mdinfo.getPubYear() != null) {
+            taskWarning("using tdb start year " + mdinfo.getPubYear() + " for "
                 + tdbauName + " -- metadata year is missing");
           }
         }
@@ -1019,7 +1032,7 @@ public class ReindexingTask extends StepTask {
    * @return a boolean with <code>true</code> if the task has been cancelled,
    *         <code>false</code> otherwise.
    */
-  boolean isCancelled() {
+  public boolean isCancelled() {
     return cancelled;
   }
 }

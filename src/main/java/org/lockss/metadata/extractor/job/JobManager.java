@@ -1,6 +1,6 @@
 /*
 
-Copyright (c) 2016-2018 Board of Trustees of Leland Stanford Jr. University,
+Copyright (c) 2016-2019 Board of Trustees of Leland Stanford Jr. University,
 all rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -31,6 +31,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 package org.lockss.metadata.extractor.job;
 
+import static org.lockss.metadata.extractor.job.SqlConstants.*;
 import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.Date;
@@ -118,6 +119,9 @@ public class JobManager extends BaseLockssDaemonManager implements
   private ExecutorService taskExecutor = null;
   private List<JobTask> tasks = null;
 
+  /**
+   * Default constructor.
+   */
   public JobManager() {
   }
 
@@ -325,9 +329,6 @@ public class JobManager extends BaseLockssDaemonManager implements
    * @param continuationToken
    *          A JobContinuationToken with the pagination token, if any.
    * @return a JobPage with the requested list of jobs.
-   * @throws ConcurrentModificationException
-   *           if there is a conflict between the pagination request and the
-   *           current content in the database.
    * @throws Exception
    *           if there are problems getting the jobs.
    */
@@ -556,10 +557,9 @@ public class JobManager extends BaseLockssDaemonManager implements
 	int markedJobs = -1;
 
 	if (status == ReindexingStatus.Success) {
-	  markedJobs = jobManagerSql.markJobAsDone(conn, jobSeq, "Success");
+	  markedJobs = markJobAsDone(conn, jobSeq, "Success");
 	} else {
-	  markedJobs = jobManagerSql.markJobAsDone(conn, jobSeq,
-	      "Failure: " + exception);
+	  markedJobs = markJobAsDone(conn, jobSeq, "Failure: " + exception);
 	}
 
 	if (log.isDebug3())
@@ -665,10 +665,9 @@ public class JobManager extends BaseLockssDaemonManager implements
 	int markedJobs = -1;
 
 	if (status == ReindexingStatus.Success) {
-	  markedJobs = jobManagerSql.markJobAsDone(conn, jobSeq, "Success");
+	  markedJobs = markJobAsDone(conn, jobSeq, "Success");
 	} else {
-	  markedJobs = jobManagerSql.markJobAsDone(conn, jobSeq,
-	      "Failure: " + exception);
+	  markedJobs = markJobAsDone(conn, jobSeq, "Failure: " + exception);
 	}
 
 	if (log.isDebug3())
@@ -919,5 +918,121 @@ public class JobManager extends BaseLockssDaemonManager implements
 
     if (log.isDebug2()) log.debug2("jobSeq = " + jobSeq);
     return jobSeq;
+  }
+
+  /**
+   * Provides an Archival Unit job.
+   * 
+   * @param conn
+   *          A Connection with the database connection to be used.
+   * @param auId
+   *          A String with the Archival Unit identifier.
+   * @return a JobAuStatus with the created metadata removal job properties.
+   * @throws DbException
+   *           if any problem occurred accessing the database.
+   */
+  public JobAuStatus getAuJob(Connection conn, String auId) throws DbException {
+    return jobManagerSql.getAuJob(conn, auId);
+  }
+
+  /**
+   * Provides the count of reindexing jobs.
+   * 
+   * @return a long with the count of reindexing jobs.
+   * @throws DbException
+   *           if any problem occurred accessing the database.
+   */
+  public long getReindexingJobsCount() throws DbException {
+    if (jobManagerEnabled) {
+      return jobManagerSql.getReindexingJobsCount();
+    }
+
+    return 0;
+  }
+
+  /**
+   * Provides the count of successful reindexing jobs.
+   * 
+   * @return a long with the count of successful reinexing jobs.
+   * @throws DbException
+   *           if any problem occurred accessing the database.
+   */
+  public long getSuccessfulReindexingJobsCount() throws DbException {
+    if (jobManagerEnabled) {
+      return jobManagerSql.getSuccessfulReindexingJobsCount();
+    }
+
+    return 0;
+  }
+
+  /**
+   * Provides the count of failed reindexing jobs.
+   * 
+   * @return a long with the count of failed reindexing jobs.
+   * @throws DbException
+   *           if any problem occurred accessing the database.
+   */
+  public long getFailedReindexingJobsCount() throws DbException {
+    if (jobManagerEnabled) {
+      return jobManagerSql.getFailedReindexingJobsCount();
+    }
+
+    return 0;
+  }
+
+  /**
+   * Provides data for finished reindexing jobs that are started before a given
+   * timestamp.
+   * 
+   * @param maxJobCount
+   *          An int with the maximum number of jobs to return.
+   * @param beforeTime
+   *          A long with the timestamp.
+   * @return a List<Map<String, Object>> with the data for the finished jobs.
+   * @throws DbException
+   *           if any problem occurred accessing the database.
+   */
+  public List<Map<String, Object>> getFinishedReindexingJobsBefore(
+      int maxJobCount, long beforeTime) throws DbException {
+    if (jobManagerEnabled) {
+      return jobManagerSql.getFinishedReindexingJobsBefore(maxJobCount,
+	  beforeTime);
+    }
+
+    return new ArrayList<Map<String, Object>>();
+  }
+
+  /**
+   * Provides data for failed reindexing jobs that are started before a given
+   * timestamp.
+   * 
+   * @param maxJobCount
+   *          An int with the maximum number of jobs to return.
+   * @param beforeTime
+   *          A long with the timestamp.
+   * @return a List<Map<String, Object>> with the data for the failed jobs.
+   * @throws DbException
+   *           if any problem occurred accessing the database.
+   */
+  public List<Map<String, Object>> getFailedReindexingJobsBefore(
+      int maxJobCount, long beforeTime) throws DbException {
+    if (jobManagerEnabled) {
+      return jobManagerSql.getFailedReindexingJobsBefore(maxJobCount,
+	  beforeTime);
+    }
+
+    return new ArrayList<Map<String, Object>>();
+  }
+
+  /**
+   * Provides an indication of whether a job involves a full reindexing task.
+   * 
+   * @param jobTypeSeq An Long with the job type database identifier.
+   * @return a boolean with <code>true</code> if the job involves a full
+   *         reindexing task, <code>false</code> otherwise.
+   */
+  public boolean isFullReindexJob(Long jobTypeSeq) {
+    return jobManagerSql.getJobTypeSeqByName().get(JOB_TYPE_PUT_AU)
+	.equals(jobTypeSeq);
   }
 }

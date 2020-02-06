@@ -1,6 +1,6 @@
 /*
 
-Copyright (c) 2013-2018 Board of Trustees of Leland Stanford Jr. University,
+Copyright (c) 2013-2019 Board of Trustees of Leland Stanford Jr. University,
 all rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -29,43 +29,45 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
  */
+package org.lockss.metadata;
+
+import org.lockss.metadata.ArticleMetadataBuffer.ArticleMetadataInfo;
 
 /**
  * Exception specific to the processing of extracted metadata.
  * 
  * @version 1.0
  */
-package org.lockss.metadata.extractor;
-
-import org.lockss.metadata.extractor.ArticleMetadataBuffer.ArticleMetadataInfo;
-
 @SuppressWarnings("serial")
 public class MetadataIndexingException extends Exception {
 
   private ArticleMetadataInfo mdinfo;
 
-  public MetadataIndexingException() {
+  MetadataIndexingException() {
     super();
   }
 
-  public MetadataIndexingException(String message) {
+  MetadataIndexingException(String message) {
     super(message);
   }
 
-  public MetadataIndexingException(Throwable cause) {
+  MetadataIndexingException(Throwable cause) {
     super(cause);
   }
 
-  public MetadataIndexingException(String message, Throwable cause) {
+  MetadataIndexingException(String message, Throwable cause) {
     super(message, cause);
   }
 
-  public MetadataIndexingException(String message,
-      ArticleMetadataInfo mdinfo) {
+  MetadataIndexingException(String message, ArticleMetadataInfo mdinfo) {
     super(message);
     this.mdinfo = mdinfo;
   }
 
+  /**
+   * Provides the article metadata information involved in this exception.
+   * @return an ArticleMetadataInfo with the article metadata information.
+   */
   public ArticleMetadataInfo getArticleMetadataInfo() {
     return mdinfo;
   }

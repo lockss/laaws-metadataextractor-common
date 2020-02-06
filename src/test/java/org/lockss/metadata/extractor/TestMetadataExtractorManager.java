@@ -1,6 +1,6 @@
 /*
 
-Copyright (c) 2000-2018 Board of Trustees of Leland Stanford Jr. University.
+Copyright (c) 2000-2019 Board of Trustees of Leland Stanford Jr. University.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -33,14 +33,16 @@ package org.lockss.metadata.extractor;
 
 import static org.lockss.metadata.extractor.MetadataExtractorManager.*;
 import static org.lockss.metadata.extractor.MetadataManagerStatusAccessor.*;
+import static org.lockss.metadata.extractor.job.JobManager.*;
 import static org.lockss.metadata.SqlConstants.*;
 import java.io.*;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.*;
+import org.junit.Test;
 import org.lockss.config.*;
-import org.lockss.config.Configuration.Differences;
+import org.lockss.config.db.ConfigDbManager;
 import org.lockss.daemon.PluginException;
 import org.lockss.extractor.ArticleMetadata;
 import org.lockss.extractor.ArticleMetadataExtractor;
@@ -48,7 +50,9 @@ import org.lockss.extractor.MetadataField;
 import org.lockss.extractor.MetadataTarget;
 import org.lockss.metadata.MetadataDbManager;
 import org.lockss.metadata.MetadataManager;
+import org.lockss.metadata.query.MetadataQueryManager;
 import org.lockss.metadata.extractor.MetadataExtractorManager.PrioritizedAuId;
+import org.lockss.metadata.extractor.job.JobAuStatus;
 import org.lockss.metadata.extractor.job.JobDbManager;
 import org.lockss.metadata.extractor.job.JobManager;
 import org.lockss.plugin.*;
@@ -57,18 +61,23 @@ import org.lockss.util.*;
 import org.lockss.test.*;
 
 /**
- * Test class for org.lockss.metadata.TestMetadataExtractorManager
+ * Test class for org.lockss.metadata.extractor.MetadataExtractorManager
  */
-public class TestMetadataExtractorManager extends LockssTestCase {
+public class TestMetadataExtractorManager extends LockssTestCase4 {
   static Logger log = Logger.getLogger(TestMetadataExtractorManager.class);
 
   private SimulatedArchivalUnit sau0, sau1, sau2, sau3, sau4;
   private MockLockssDaemon theDaemon;
+  private MetadataQueryManager mdqManager;
   private MetadataExtractorManager mdxManager;
   private MetadataExtractorManagerSql mdxManagerSql;
+  private ConfigDbManager configDbManager;
   private PluginManager pluginManager;
+  private ConfigManager configManager;
   private MetadataDbManager dbManager;
   private MetadataManager mdManager;
+  private JobManager jobManager;
+  private JobDbManager jobDbManager;
 
   /** set of AuIds of AUs reindexed by the MetadataManager */
   Set<String> ausReindexed = new HashSet<String>();
@@ -76,14 +85,19 @@ public class TestMetadataExtractorManager extends LockssTestCase {
   /** number of articles deleted by the MetadataManager */
   Integer[] articlesDeleted = new Integer[] {0};
   
+  @Override
   public void setUp() throws Exception {
     super.setUp();
     String tempDirPath = setUpDiskSpace();
 
     ConfigurationUtil.addFromArgs(PARAM_INDEXING_ENABLED, "true");
+    ConfigurationUtil.addFromArgs(PARAM_JOBMANAGER_ENABLED, "true");
+    ConfigurationUtil.addFromArgs(PARAM_SLEEP_DELAY_SECONDS, "2");
 
     theDaemon = getMockLockssDaemon();
     theDaemon.getAlertManager();
+    theDaemon.getManagerByType(ConfigDbManager.class).startService();
+    configManager = theDaemon.getConfigManager();
     pluginManager = theDaemon.getPluginManager();
     pluginManager.setLoadablePluginsReady(true);
     theDaemon.setDaemonInited(true);
@@ -91,14 +105,30 @@ public class TestMetadataExtractorManager extends LockssTestCase {
 
     sau0 = PluginTestUtil.createAndStartSimAu(MySimulatedPlugin0.class,
                                               simAuConfig(tempDirPath + "/0"));
+    configManager.storeArchivalUnitConfiguration(
+	new AuConfiguration(sau0.getAuId(),
+	    sau0.getConfiguration().toStringMap()));
     sau1 = PluginTestUtil.createAndStartSimAu(MySimulatedPlugin1.class,
                                               simAuConfig(tempDirPath + "/1"));
+    configManager.storeArchivalUnitConfiguration(
+	new AuConfiguration(sau1.getAuId(),
+	    sau1.getConfiguration().toStringMap()));
     sau2 = PluginTestUtil.createAndStartSimAu(MySimulatedPlugin2.class,
                                               simAuConfig(tempDirPath + "/2"));
+    configManager.storeArchivalUnitConfiguration(
+	new AuConfiguration(sau2.getAuId(),
+	    sau2.getConfiguration().toStringMap()));
     sau3 = PluginTestUtil.createAndStartSimAu(MySimulatedPlugin3.class,
                                               simAuConfig(tempDirPath + "/3"));
+    configManager.storeArchivalUnitConfiguration(
+	new AuConfiguration(sau3.getAuId(),
+	    sau3.getConfiguration().toStringMap()));
     sau4 = PluginTestUtil.createAndStartSimAu(MySimulatedPlugin0.class,
                                               simAuConfig(tempDirPath + "/4"));
+    configManager.storeArchivalUnitConfiguration(
+	new AuConfiguration(sau4.getAuId(),
+	    sau4.getConfiguration().toStringMap()));
+
     PluginTestUtil.crawlSimAu(sau0);
     PluginTestUtil.crawlSimAu(sau1);
     PluginTestUtil.crawlSimAu(sau2);
@@ -115,8 +145,10 @@ public class TestMetadataExtractorManager extends LockssTestCase {
     mdManager.initService(theDaemon);
     mdManager.startService();
 
-    theDaemon.setManagerByType(JobManager.class, new JobManager());
-    theDaemon.setManagerByType(JobDbManager.class, new JobDbManager());
+    mdqManager = new MetadataQueryManager();
+    theDaemon.setManagerByType(MetadataQueryManager.class, mdqManager);
+    mdqManager.initService(theDaemon);
+    mdqManager.startService();
 
     mdxManager = new MetadataExtractorManager() {
       /**
@@ -125,10 +157,13 @@ public class TestMetadataExtractorManager extends LockssTestCase {
        * @param articleCount the number of articles deleted for the AU
        */
       protected void notifyDeletedAu(String auId, int articleCount) {
+	final String DEBUG_HEADER = "notifyDeletedAu(): ";
+        log.info("Deleted auId " + auId + ", articleCount = " + articleCount);
 	synchronized (articlesDeleted) {
 	  articlesDeleted[0] += articleCount;
 	  articlesDeleted.notifyAll();
 	}
+	if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done");
       }
 
       /**
@@ -138,6 +173,7 @@ public class TestMetadataExtractorManager extends LockssTestCase {
        */
       protected void notifyStartReindexingAu(ArchivalUnit au) {
         log.info("Start reindexing au " + au);
+	jobManager.handlePutAuJobStartEvent(au.getAuId());
       }
       
       /**
@@ -147,6 +183,14 @@ public class TestMetadataExtractorManager extends LockssTestCase {
        */
       protected void notifyFinishReindexingAu(ArchivalUnit au,
 	  ReindexingStatus status, Exception exception) {
+	final String DEBUG_HEADER = "notifyFinishReindexingAu(): ";
+	if (log.isDebug2()) {
+	  log.debug2(DEBUG_HEADER + "au = " + au);
+	  log.debug2(DEBUG_HEADER + "status = " + status);
+	  log.debug2(DEBUG_HEADER + "exception = " + exception);
+	}
+
+	jobManager.handlePutAuJobFinishEvent(au.getAuId(), status, exception);
         log.info("Finished reindexing au (" + status + ") " + au);
         if (status != ReindexingStatus.Rescheduled) {
           synchronized (ausReindexed) {
@@ -154,11 +198,23 @@ public class TestMetadataExtractorManager extends LockssTestCase {
             ausReindexed.notifyAll();
           }
         }
+	if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done");
       }
     };
 
     theDaemon.setManagerByType(MetadataExtractorManager.class, mdxManager);
     mdxManager.initService(theDaemon);
+
+    jobDbManager = new JobDbManager();
+    theDaemon.setManagerByType(JobDbManager.class, jobDbManager);
+    jobDbManager.initService(theDaemon);
+    jobDbManager.startService();
+
+    jobManager = new JobManager();
+    theDaemon.setManagerByType(JobManager.class, jobManager);
+    jobManager.initService(theDaemon);
+    jobManager.startService();
+
     mdxManager.startService();
 
     mdxManagerSql = mdxManager.getMetadataExtractorManagerSql();
@@ -185,7 +241,7 @@ public class TestMetadataExtractorManager extends LockssTestCase {
     return conf;
   }
 
-
+  @Override
   public void tearDown() throws Exception {
     sau0.deleteContentTree();
     sau1.deleteContentTree();
@@ -216,28 +272,27 @@ public class TestMetadataExtractorManager extends LockssTestCase {
     return ausReindexed.size();
   }
 
+  /**
+   * Runs all the tests.
+   * 
+   * @throws Exception if there are problems.
+   */
+  @Test
   public void testAll() throws Exception {
+    log.debug2("Invoked");
     runCreateMetadataTest();
     runTestPendingAu();
-    runTestPrioritizedPendingAu();
-    runTestPendingAusBatch();
     runModifyMetadataTest();
-    runDeleteAuMetadataTest();
+    //runDeleteAuMetadataTest();
     runTestPriorityPatterns();
-    runTestDisabledIndexingAu();
-    runTestFailedIndexingAu();
     runTestGetIndexTypeDisplayString();
-    runRemoveChildMetadataItemTest();
+    //runRemoveChildMetadataItemTest();
     runTestMandatoryMetadataFields();
+    log.debug2("Done");
   }
 
   private void runCreateMetadataTest() throws Exception {
     Connection con = dbManager.getConnection();
-    
-    assertEquals(0, mdxManager.activeReindexingTasks.size());
-    assertEquals(0, mdxManagerSql.getPrioritizedAuIdsToReindex(con,
-	Integer.MAX_VALUE, mdxManager.isPrioritizeIndexingNewAus())
-	.size());
 
     // 21 articles for each of four AUs
     // au0 and au1 for plugin0 have the same articles for different AUs
@@ -349,11 +404,6 @@ public class TestMetadataExtractorManager extends LockssTestCase {
     results.remove("9781585623174");
     results.remove("9761585623177");
     assertEquals(0, results.size());
-    
-    assertEquals(0, mdxManager.activeReindexingTasks.size());
-    assertEquals(0, mdxManagerSql.getPrioritizedAuIdsToReindex(con,
-	Integer.MAX_VALUE, mdxManager.isPrioritizeIndexingNewAus())
-	.size());
 
     MetadataDbManager.safeRollbackAndClose(con);
   }
@@ -363,296 +413,78 @@ public class TestMetadataExtractorManager extends LockssTestCase {
     // so disable re-indexing.
     mdxManager.setIndexingEnabled(false);
 
-    Connection conn = dbManager.getConnection();
-
-    PreparedStatement insertPendingAuBatchStatement =
-	mdxManager.getInsertPendingAuBatchStatement(conn);
+    Connection conn = jobDbManager.getConnection();
 
     // Add one AU for incremental metadata indexing.
-    mdxManager.enableAndAddAuToReindex(sau0, conn,
-	insertPendingAuBatchStatement, false, false);
-    
+    JobAuStatus jobAuStatus =
+	jobManager.scheduleMetadataExtraction(sau0.getAuId(), false);
+    assertNotNull(jobAuStatus);
+
     // Check that the row is there.
-    String countPendingAuQuery = "select count(*) from " + PENDING_AU_TABLE;
-    checkRowCount(conn, countPendingAuQuery, 1);
+    jobAuStatus = jobManager.getAuJob(conn, sau0.getAuId());
+    assertNotNull(jobAuStatus);
 
     // Make sure that it is marked for incremental metadata indexing.
-    assertFalse(mdxManagerSql.needAuFullReindexing(conn, sau0));
+    assertEquals(3, jobAuStatus.getType().longValue());
 
     // Add the same AU for full metadata indexing.
-    mdxManager.enableAndAddAuToReindex(sau0, conn,
-	insertPendingAuBatchStatement, false, true);
-    
-    // Check that the same row is there.
-    checkRowCount(conn, countPendingAuQuery, 1);
+    jobAuStatus = jobManager.scheduleMetadataExtraction(sau0.getAuId(), true);
+    assertNotNull(jobAuStatus);
 
-    // Make sure that it is marked for incremental metadata indexing.
-    assertTrue(mdxManagerSql.needAuFullReindexing(conn, sau0));
+    // Check that the same row is there.
+    jobAuStatus = jobManager.getAuJob(conn, sau0.getAuId());
+    assertNotNull(jobAuStatus);
+
+    // Make sure that it is marked for full metadata indexing.
+    assertEquals(1, jobAuStatus.getType().longValue());
 
     // Add the same AU for incremental metadata indexing.
-    mdxManager.enableAndAddAuToReindex(sau0, conn,
-	insertPendingAuBatchStatement, false, true);
-    
-    // Check that the same row is there.
-    checkRowCount(conn, countPendingAuQuery, 1);
+    jobAuStatus = jobManager.scheduleMetadataExtraction(sau0.getAuId(), false);
+    assertNotNull(jobAuStatus);
 
-    // Make sure that it is still marked for full metadata indexing.
-    assertTrue(mdxManagerSql.needAuFullReindexing(conn, sau0));
+    // Check that the same row is there.
+    jobAuStatus = jobManager.getAuJob(conn, sau0.getAuId());
+    assertNotNull(jobAuStatus);
+
+    // Make sure that it is marked for incremental metadata indexing.
+    assertEquals(3, jobAuStatus.getType().longValue());
 
     // Add another AU for full metadata indexing.
-    mdxManager.enableAndAddAuToReindex(sau1, conn,
-	insertPendingAuBatchStatement, false, true);
-    
-    // Check that the new row is there.
-    checkRowCount(conn, countPendingAuQuery, 2);
+    jobAuStatus = jobManager.scheduleMetadataExtraction(sau1.getAuId(), true);
+    assertNotNull(jobAuStatus);
 
-    // Verify the type of metadata indexing.
-    assertTrue(mdxManagerSql.needAuFullReindexing(conn, sau0));
-    assertTrue(mdxManagerSql.needAuFullReindexing(conn, sau1));
+    // Check that the new row is there.
+    jobAuStatus = jobManager.getAuJob(conn, sau0.getAuId());
+    assertNotNull(jobAuStatus);
+    assertEquals(3, jobAuStatus.getType().longValue());
+    jobAuStatus = jobManager.getAuJob(conn, sau1.getAuId());
+    assertNotNull(jobAuStatus);
+    assertEquals(1, jobAuStatus.getType().longValue());
 
     // Add a third AU for incremental metadata indexing.
-    mdxManager.enableAndAddAuToReindex(sau2, conn,
-	insertPendingAuBatchStatement, false, false);
-    
-    // Check that the row is there.
-    checkRowCount(conn, countPendingAuQuery, 3);
-
-    // Verify the type of metadata indexing.
-    assertTrue(mdxManagerSql.needAuFullReindexing(conn, sau0));
-    assertTrue(mdxManagerSql.needAuFullReindexing(conn, sau1));
-    assertFalse(mdxManagerSql.needAuFullReindexing(conn, sau2));
-
-    // Clear the table of pending AUs.
-    checkExecuteCount(conn, "delete from " + PENDING_AU_TABLE, 3);
-
-    conn.commit();
-    MetadataDbManager.safeRollbackAndClose(conn);
-
-    // Re-enable re-indexing.
-    mdxManager.setIndexingEnabled(true);
-  }
-
-  private void checkRowCount(Connection conn, String query, int expectedCount)
-      throws Exception {
-    PreparedStatement stmt = dbManager.prepareStatement(conn, query);
-    ResultSet resultSet = dbManager.executeQuery(stmt);
-    int count = -1;
-
-    if (resultSet.next()) {
-      count = resultSet.getInt(1);
-    }
-
-    assertEquals(expectedCount, count);
-  }
-
-  private void checkExecuteCount(Connection conn, String query,
-      int expectedCount) throws Exception {
-    PreparedStatement stmt = dbManager.prepareStatement(conn, query);
-    int count = dbManager.executeUpdate(stmt);
-    assertEquals(expectedCount, count);
-  }
-
-  private void runTestPrioritizedPendingAu() throws Exception {
-    // We are only testing here the addition of AUs to the table of pending AUs,
-    // so disable re-indexing.
-    mdxManager.setIndexingEnabled(false);
-
-    Connection conn = dbManager.getConnection();
-
-    PreparedStatement insertPendingAuBatchStatement =
-	mdxManager.getInsertPendingAuBatchStatement(conn);
-
-    // Add an AU for incremental metadata indexing.
-    mdxManager.enableAndAddAuToReindex(sau0, conn,
-	insertPendingAuBatchStatement, false, false);
+    jobAuStatus = jobManager.scheduleMetadataExtraction(sau2.getAuId(), true);
+    assertNotNull(jobAuStatus);
 
     // Check that the row is there.
-    String countPendingAuQuery = "select count(*) from " + PENDING_AU_TABLE
-	+ " where " + PRIORITY_COLUMN + " > 0";
-    checkRowCount(conn, countPendingAuQuery, 1);
-
-    // Check that there are no high priority rows.
-    String countPrioritizedPendingAuQuery = "select count(*) from "
-	+ PENDING_AU_TABLE + " where " + PRIORITY_COLUMN + " = 0";
-    checkRowCount(conn, countPrioritizedPendingAuQuery, 0);
-
-    PreparedStatement insertPrioritizedPendingAuBatchStatement =
-	mdxManager.getPrioritizedInsertPendingAuBatchStatement(conn);
-
-    // Add another AU for full metadata prioritized indexing.
-    mdxManager.enableAndAddAuToReindex(sau1, conn,
-	insertPrioritizedPendingAuBatchStatement, false, true);
-
-    // Check that the same non-prioritized row is there.
-    checkRowCount(conn, countPendingAuQuery, 1);
-
-    // Check that the prioritized row is there.
-    checkRowCount(conn, countPrioritizedPendingAuQuery, 1);
-
-    // Add another AU for incremental metadata prioritized indexing.
-    mdxManager.enableAndAddAuToReindex(sau2, conn,
-	insertPrioritizedPendingAuBatchStatement, false, false);
-
-    // Check that the same non-prioritized row is there.
-    checkRowCount(conn, countPendingAuQuery, 1);
-
-    // Check that both prioritized rows are there.
-    checkRowCount(conn, countPrioritizedPendingAuQuery, 2);
+    jobAuStatus = jobManager.getAuJob(conn, sau0.getAuId());
+    assertNotNull(jobAuStatus);
+    String sau0JobId = jobAuStatus.getId();
+    assertEquals(3, jobAuStatus.getType().longValue());
+    jobAuStatus = jobManager.getAuJob(conn, sau1.getAuId());
+    assertNotNull(jobAuStatus);
+    assertEquals(1, jobAuStatus.getType().longValue());
+    String sau1JobId = jobAuStatus.getId();
+    jobAuStatus = jobManager.getAuJob(conn, sau2.getAuId());
+    assertNotNull(jobAuStatus);
+    assertEquals(1, jobAuStatus.getType().longValue());
+    String sau2JobId = jobAuStatus.getId();
 
     // Clear the table of pending AUs.
-    checkExecuteCount(conn, "delete from " + PENDING_AU_TABLE, 3);
+    jobAuStatus = jobManager.removeJob(sau0JobId);
+    jobAuStatus = jobManager.removeJob(sau1JobId);
+    jobAuStatus = jobManager.removeJob(sau2JobId);
 
-    conn.commit();
-    MetadataDbManager.safeRollbackAndClose(conn);
-
-    // Re-enable re-indexing.
-    mdxManager.setIndexingEnabled(true);
-  }
-
-  private void runTestPendingAusBatch() throws Exception {
-    // Set to 2 the batch size for adding pending AUs.
-    ConfigurationUtil.addFromArgs(PARAM_MAX_PENDING_TO_REINDEX_AU_BATCH_SIZE,
-	"2");
-
-    // We are only testing here the addition of AUs to the table of pending AUs,
-    // so disable re-indexing.
-    mdxManager.setIndexingEnabled(false);
-
-    Connection con = dbManager.getConnection();
-
-    PreparedStatement insertPendingAuBatchStatement =
-	mdxManager.getInsertPendingAuBatchStatement(con);
-
-    // Add one AU.
-    mdxManager.enableAndAddAuToReindex(sau0, con,
-	insertPendingAuBatchStatement, true);
-    
-    // Check that nothing has been added yet.
-    String countPendingAuQuery = "select count(*) from " + PENDING_AU_TABLE;
-    checkRowCount(con, countPendingAuQuery, 0);
-
-    // Add the second AU.
-    mdxManager.enableAndAddAuToReindex(sau1, con,
-	insertPendingAuBatchStatement, true);
-    
-    // Check that one batch has been executed.
-    checkRowCount(con, countPendingAuQuery, 2);
-    String countFullReindexQuery = "select count(*) from " + PENDING_AU_TABLE
-	+ " where " + FULLY_REINDEX_COLUMN + " = true";
-    checkRowCount(con, countFullReindexQuery, 2);
-
-    // Add the third AU.
-    mdxManager.enableAndAddAuToReindex(sau2, con,
-	insertPendingAuBatchStatement, true);
-
-    // Check that the third AU has not been added yet.
-    checkRowCount(con, countPendingAuQuery, 2);
-    checkRowCount(con, countFullReindexQuery, 2);
-
-    // Add the fourth AU.
-    mdxManager.enableAndAddAuToReindex(sau3, con,
-	insertPendingAuBatchStatement, true);
-    
-    // Check that the second batch has been executed.
-    checkRowCount(con, countPendingAuQuery, 4);
-    checkRowCount(con, countFullReindexQuery, 4);
-
-    // Add the last AU.
-    mdxManager.enableAndAddAuToReindex(sau4, con,
-	insertPendingAuBatchStatement, false);
-
-    // Check that all the AUs have been added.
-    checkRowCount(con, countPendingAuQuery, 5);
-    checkRowCount(con, countFullReindexQuery, 5);
-
-    // insert another pending AU that is not also in the metadata manager
-    insertPendingAuBatchStatement.setString(1, "XyzzyPlugin");
-    insertPendingAuBatchStatement.setString(2, "journal_id=xyzzy");
-    insertPendingAuBatchStatement.setBoolean(3, Boolean.FALSE);
-    insertPendingAuBatchStatement.execute();
-
-    // Check that the last AU has been added.
-    checkRowCount(con, countPendingAuQuery, 6);
-    checkRowCount(con, countFullReindexQuery, 5);
-
-    assertTrue(mdxManager.isPrioritizeIndexingNewAus());
-
-    // ensure that the the most recently added "new" AU is prioritized first
-    List<MetadataExtractorManager.PrioritizedAuId> auids =
-        mdxManagerSql.getPrioritizedAuIdsToReindex(con, Integer.MAX_VALUE,
-            mdxManager.isPrioritizeIndexingNewAus());
-    assertEquals(6, auids.size());
-    assertTrue(auids.get(0).isNew);
-    assertFalse(auids.get(0).needFullReindex);
-
-    for (int i = 1; i <= 5; i++) {
-      assertFalse(auids.get(i).isNew);
-      assertTrue(auids.get(i).needFullReindex);
-    }
-
-    // modify the metadata manager to not prioritize new AUs over existing ones
-    Configuration newConf = ConfigManager.newConfiguration();
-    newConf.put("org.lockss.metadataManager.prioritizeIndexingNewAus", "false");
-    Configuration oldConf = ConfigManager.newConfiguration();
-    Differences diffs = newConf.differences(oldConf);
-    mdxManager.setConfig(newConf, oldConf, diffs);
-
-    assertFalse(mdxManager.isPrioritizeIndexingNewAus());
-
-    // ensure that the the most recently added "new" AU is prioritized last
-    auids = mdxManagerSql.getPrioritizedAuIdsToReindex(con,
-	Integer.MAX_VALUE, mdxManager.isPrioritizeIndexingNewAus());
-    assertEquals(6, auids.size());
-    for (int i = 0; i < 5; i++) {
-      assertFalse(auids.get(i).isNew);
-      assertTrue(auids.get(i).needFullReindex);
-    }
-
-    assertTrue(auids.get(5).isNew);  // most recently added
-    assertFalse(auids.get(5).needFullReindex);
-
-    // Modify the metadata manager to prioritize new AUs over existing ones.
-    newConf = ConfigManager.newConfiguration();
-    newConf.put("org.lockss.metadataManager.prioritizeIndexingNewAus", "true");
-    oldConf = ConfigManager.newConfiguration();
-    diffs = newConf.differences(oldConf);
-    mdxManager.setConfig(newConf, oldConf, diffs);
-
-    assertTrue(mdxManager.isPrioritizeIndexingNewAus());
-
-    // Verify that the the "new" AU is prioritized first.
-    auids = mdxManagerSql.getPrioritizedAuIdsToReindex(con,
-	Integer.MAX_VALUE, mdxManager.isPrioritizeIndexingNewAus());
-    assertTrue(auids.get(0).isNew);
-    assertFalse(auids.get(0).needFullReindex);
-
-    // Check that no AU has a priority of zero.
-    String countZeroPriorityQuery = "select count(*) from " + PENDING_AU_TABLE
-	+ " where " + PRIORITY_COLUMN + " = 0";
-    checkRowCount(con, countZeroPriorityQuery, 0);
-
-    // Change to zero the priority of an AU that is not "new".
-    String changePriorityToZeroQuery = "update " + PENDING_AU_TABLE
-	+ " set " + PRIORITY_COLUMN + " = 0 where " + PRIORITY_COLUMN + " = 3";
-
-    PreparedStatement stmt =
-	dbManager.prepareStatement(con, changePriorityToZeroQuery);
-    dbManager.executeUpdate(stmt);
-
-    // Check that one AU has a priority of zero.
-    checkRowCount(con, countZeroPriorityQuery, 1);
-
-    // Verify that the the "new" AU is no longer prioritized first.
-    auids = mdxManagerSql.getPrioritizedAuIdsToReindex(con,
-	Integer.MAX_VALUE, mdxManager.isPrioritizeIndexingNewAus());
-    assertFalse(auids.get(0).isNew);
-    assertTrue(auids.get(0).needFullReindex);
-
-    // Clear the table of pending AUs.
-    checkExecuteCount(con, "delete from " + PENDING_AU_TABLE, 6);
-
-    con.commit();
-    MetadataDbManager.safeRollbackAndClose(con);
+    JobDbManager.safeRollbackAndClose(conn);
 
     // Re-enable re-indexing.
     mdxManager.setIndexingEnabled(true);
@@ -747,7 +579,8 @@ public class TestMetadataExtractorManager extends LockssTestCase {
     ausReindexed.clear();
 
     // delete AU
-    pluginManager.stopAu(sau0, AuEvent.forAu(sau0, AuEvent.Type.Delete));
+    //pluginManager.stopAu(sau0, AuEvent.forAu(sau0, AuEvent.Type.Delete));
+    configManager.removeArchivalUnitConfiguration(sau0.getAuId());
 
     int maxWaitTime = 10000; // 10 sec. per au
     int articleCount = waitForDeleted(1, maxWaitTime);
@@ -800,30 +633,6 @@ public class TestMetadataExtractorManager extends LockssTestCase {
     mau1.setAuId("foo4");
     assertTrue(mdxManager.isEligibleForReindexing(mau1));
 
-  }
-  
-  private void runTestDisabledIndexingAu() throws Exception {
-    Connection con = dbManager.getConnection();
-    
-    // Add a disabled AU.
-    mdxManagerSql.addDisabledAuToPendingAus(con, sau0.getAuId());
-    con.commit();
-
-    // Make sure that it is there.
-    assertEquals(1, mdxManager.findDisabledPendingAus(con).size());
-    MetadataDbManager.safeRollbackAndClose(con);
-  }
-  
-  private void runTestFailedIndexingAu() throws Exception {
-    Connection con = dbManager.getConnection();
-    
-    // Add an AU with a failed indexing process.
-    mdxManagerSql.addFailedIndexingAuToPendingAus(con, sau1.getAuId());
-    con.commit();
-
-    // Make sure that it is there.
-    assertEquals(1, mdxManager.findFailedIndexingPendingAus(con).size());
-    MetadataDbManager.safeRollbackAndClose(con);
   }
 
   private void runTestGetIndexTypeDisplayString() throws Exception {
@@ -899,9 +708,18 @@ public class TestMetadataExtractorManager extends LockssTestCase {
     assertEquals("xyz", mandatoryFields.get(1));
   }
 
+  /**
+   * Special metadata extractor factory for the tests.
+   */
   public static class MySubTreeArticleIteratorFactory
       implements ArticleIteratorFactory {
     String pat;
+
+    /**
+     * Constructor.
+     * 
+     * @param pat A String with the regular expression the article URLs must match.
+     */
     public MySubTreeArticleIteratorFactory(String pat) {
       this.pat = pat;
     }
@@ -931,12 +749,14 @@ public class TestMetadataExtractorManager extends LockssTestCase {
     }
   }
 
+  /**
+   * Special base plugin for the tests.
+   */
   public static class MySimulatedPlugin extends SimulatedPlugin {
     ArticleMetadataExtractor simulatedArticleMetadataExtractor = null;
     int version = 2;
     /**
      * Returns the article iterator factory for the mime type, if any
-     * @param contentType the content type
      * @return the ArticleIteratorFactory
      */
     @Override
@@ -963,7 +783,13 @@ public class TestMetadataExtractorManager extends LockssTestCase {
     }
   }
 
+  /**
+   * Special plugin number zero for the tests.
+   */
   public static class MySimulatedPlugin0 extends MySimulatedPlugin {
+    /**
+     * Constructor.
+     */
     public MySimulatedPlugin0() {
       simulatedArticleMetadataExtractor = new ArticleMetadataExtractor() {
         int articleNumber = 0;
@@ -1006,6 +832,11 @@ public class TestMetadataExtractorManager extends LockssTestCase {
         }
       };
     }
+
+    /**
+     * Provides the definition map.
+     * @return an ExternalizableMap with the definition map.
+     */
     public ExternalizableMap getDefinitionMap() {
       ExternalizableMap map = new ExternalizableMap();
       map.putString("au_start_url", "\"%splugin0/%s\", base_url, volume");
@@ -1013,7 +844,13 @@ public class TestMetadataExtractorManager extends LockssTestCase {
     }
   }
           
+  /**
+   * Special plugin number one for the tests.
+   */
   public static class MySimulatedPlugin1 extends MySimulatedPlugin {
+    /**
+     * Constructor.
+     */
     public MySimulatedPlugin1() {
       simulatedArticleMetadataExtractor = new ArticleMetadataExtractor() {
         int articleNumber = 0;
@@ -1051,6 +888,11 @@ public class TestMetadataExtractorManager extends LockssTestCase {
         }
       };
     }
+
+    /**
+     * Provides the definition map.
+     * @return an ExternalizableMap with the definition map.
+     */
     public ExternalizableMap getDefinitionMap() {
       ExternalizableMap map = new ExternalizableMap();
       map.putString("au_start_url", "\"%splugin1/v_42\", base_url");
@@ -1058,7 +900,13 @@ public class TestMetadataExtractorManager extends LockssTestCase {
     }
   }
   
+  /**
+   * Special plugin number two for the tests.
+   */
   public static class MySimulatedPlugin2 extends MySimulatedPlugin {
+    /**
+     * Constructor.
+     */
     public MySimulatedPlugin2() {
       simulatedArticleMetadataExtractor = new ArticleMetadataExtractor() {
         int articleNumber = 0;
@@ -1084,6 +932,11 @@ public class TestMetadataExtractorManager extends LockssTestCase {
         }
       };
     }
+
+    /**
+     * Provides the definition map.
+     * @return an ExternalizableMap with the definition map.
+     */
     public ExternalizableMap getDefinitionMap() {
       ExternalizableMap map = new ExternalizableMap();
       map.putString("au_start_url", "\"%splugin2/1993\", base_url");
@@ -1091,7 +944,13 @@ public class TestMetadataExtractorManager extends LockssTestCase {
     }
   }
   
+  /**
+   * Special plugin number three for the tests.
+   */
   public static class MySimulatedPlugin3 extends MySimulatedPlugin {
+    /**
+     * Constructor.
+     */
     public MySimulatedPlugin3() {
       simulatedArticleMetadataExtractor = new ArticleMetadataExtractor() {
         int articleNumber = 0;
@@ -1116,6 +975,11 @@ public class TestMetadataExtractorManager extends LockssTestCase {
         }
       };
     }
+
+    /**
+     * Provides the definition map.
+     * @return an ExternalizableMap with the definition map.
+     */
     public ExternalizableMap getDefinitionMap() {
       ExternalizableMap map = new ExternalizableMap();
       map.putString("au_start_url", "\"%splugin3/1999\", base_url");

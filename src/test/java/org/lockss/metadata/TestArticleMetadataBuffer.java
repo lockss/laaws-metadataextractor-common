@@ -1,6 +1,6 @@
 /*
 
-Copyright (c) 2012-2018 Board of Trustees of Leland Stanford Jr. University,
+Copyright (c) 2012-2019 Board of Trustees of Leland Stanford Jr. University,
 all rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -29,12 +29,12 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-package org.lockss.metadata.extractor;
+package org.lockss.metadata;
 
 import java.util.*;
 import org.lockss.extractor.ArticleMetadata;
 import org.lockss.extractor.MetadataField;
-import org.lockss.metadata.extractor.ArticleMetadataBuffer.ArticleMetadataInfo;
+import org.lockss.metadata.ArticleMetadataBuffer.ArticleMetadataInfo;
 import org.lockss.util.*;
 import org.lockss.test.*;
 

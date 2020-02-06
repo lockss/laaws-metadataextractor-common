@@ -1,6 +1,6 @@
 /*
 
-Copyright (c) 2012-2018 Board of Trustees of Leland Stanford Jr. University,
+Copyright (c) 2012-2019 Board of Trustees of Leland Stanford Jr. University,
 all rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -43,7 +43,8 @@ import org.lockss.daemon.status.ColumnDescriptor;
 import org.lockss.daemon.status.StatusAccessor;
 import org.lockss.daemon.status.StatusService.NoSuchTableException;
 import org.lockss.daemon.status.StatusTable;
-import org.lockss.metadata.extractor.ArticleMetadataBuffer.ArticleMetadataInfo;
+import org.lockss.metadata.ArticleMetadataBuffer.ArticleMetadataInfo;
+import org.lockss.metadata.MetadataIndexingException;
 import org.lockss.metadata.extractor.MetadataExtractorManager.PrioritizedAuId;
 import org.lockss.metadata.extractor.MetadataExtractorManager.ReindexingStatus;
 import org.lockss.plugin.ArchivalUnit;
@@ -66,9 +67,9 @@ import org.lockss.util.time.TimeBase;
  *
  */
 public class MetadataManagerStatusAccessor implements StatusAccessor {
-  public static final String NEW_INDEX_TEXT = "New Index";
-  public static final String FULL_REINDEX_TEXT = "Full Reindex";
-  public static final String REINDEX_TEXT = "Reindex";
+  static final String NEW_INDEX_TEXT = "New Index";
+  static final String FULL_REINDEX_TEXT = "Full Reindex";
+  static final String REINDEX_TEXT = "Reindex";
 
   private static Logger log =
       Logger.getLogger(MetadataManagerStatusAccessor.class);
@@ -79,6 +80,7 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
   private static final String AU_COL_NAME = "au";
   private static final String INDEX_TYPE = "index_type";
   private static final String START_TIME_COL_NAME = "start";
+  private static final String TOTAL_DURATION_COL_NAME = "total_dur";
   private static final String INDEX_DURATION_COL_NAME = "index_dur";
   private static final String UPDATE_DURATION_COL_NAME = "update_dur";
   private static final String INDEX_STATUS_COL_NAME = "status";
@@ -93,7 +95,7 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
   private static int SORT_BASE_DONE = 2000000;
 
   final private List<ColumnDescriptor> colDescs =
-      ListUtil.fromArray(new ColumnDescriptor[] {
+      ListUtil.list(new ColumnDescriptor[] {
         new ColumnDescriptor(AU_COL_NAME, "Journal Volume",
                              ColumnDescriptor.TYPE_STRING)
         .setComparator(CatalogueOrderComparator.SINGLETON),
@@ -108,6 +110,11 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
         new ColumnDescriptor(START_TIME_COL_NAME, "Start Time",
                              ColumnDescriptor.TYPE_DATE,
                              "Start date and time of indexing operation"),
+        new ColumnDescriptor(TOTAL_DURATION_COL_NAME, "Total Duration",
+                             ColumnDescriptor.TYPE_TIME_INTERVAL,
+                             "Duration of metadata indexing, including"
+                             + " scanning articles, extracting metadata and"
+                             + " updating stored metadata."),
         new ColumnDescriptor(INDEX_DURATION_COL_NAME, "Index Duration",
                              ColumnDescriptor.TYPE_TIME_INTERVAL,
                              "Duration of metadata indexing, including"
@@ -143,20 +150,20 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
    * @return a list of SummaryInfo objects to display
    */
   private List<StatusTable.SummaryInfo> getErrorItemSummaryInfo(long taskTime) {
-    ReindexingTask task = null;
+    DisplayReindexingTask task = null;
     List<StatusTable.SummaryInfo> res =
         new ArrayList<StatusTable.SummaryInfo>();
 
     if (taskTime == 0) {
       // debugging only -- select the first reindexing task to display
-      List<ReindexingTask> tasks = mdxMgr.getReindexingTasks();
+      List<DisplayReindexingTask> tasks = mdxMgr.getReindexingTasks();
       if (tasks.size() > 0) {
         task = tasks.get(0);
       }
     } else {
       // select the failed reindexing task for the specified time 
-      List<ReindexingTask> tasks = mdxMgr.getFailedReindexingTasks();
-      for (ReindexingTask t : tasks) {
+      List<DisplayReindexingTask> tasks = mdxMgr.getFailedReindexingTasks();
+      for (DisplayReindexingTask t : tasks) {
         if (taskTime == t.getStartTime()) {
           task = t;
           break;
@@ -188,8 +195,9 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
           "Volume",
           ColumnDescriptor.TYPE_STRING,
           task.getAuName()));
-      ArchivalUnit au = task.getAu();
-      Plugin plugin = au.getPlugin();
+      PluginManager pluginMgr = mdxMgr.getApp().getPluginManager();
+      Plugin plugin = pluginMgr.getPluginFromId(
+	  PluginManager.pluginIdFromAuId(task.getAuId()));
       res.add(new StatusTable.SummaryInfo(
           "Plugin",
           ColumnDescriptor.TYPE_STRING,
@@ -230,33 +238,41 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
           "Start time",
           ColumnDescriptor.TYPE_DATE,
           task.getStartTime()));
+
+      // Check whether there are separate indexing and updating statistics.
+      if (task.getStartUpdateTime() != 0) {
+	res.add(new StatusTable.SummaryInfo(
+	    "Index duration",
+	    ColumnDescriptor.TYPE_TIME_INTERVAL,
+	    task.getStartUpdateTime() - task.getStartTime()));
       
-      res.add(new StatusTable.SummaryInfo(
-          "Index duration",
-          ColumnDescriptor.TYPE_TIME_INTERVAL,
-          task.getStartUpdateTime() - task.getStartTime()));
-      
-      res.add(new StatusTable.SummaryInfo(
-          "Articles indexed",
-          ColumnDescriptor.TYPE_INT,
-          task.getIndexedArticleCount()));
+	res.add(new StatusTable.SummaryInfo(
+	    "Articles indexed",
+	    ColumnDescriptor.TYPE_INT,
+	    task.getIndexedArticleCount()));
   
-      res.add(new StatusTable.SummaryInfo(
-          "Update duration",
-          ColumnDescriptor.TYPE_TIME_INTERVAL,
-          task.getEndTime() - task.getStartUpdateTime()));
+	res.add(new StatusTable.SummaryInfo(
+	    "Update duration",
+	    ColumnDescriptor.TYPE_TIME_INTERVAL,
+	    task.getEndTime() - task.getStartUpdateTime()));
       
-      res.add(new StatusTable.SummaryInfo(
-          "Articles updated",
-          ColumnDescriptor.TYPE_INT,
-          task.getUpdatedArticleCount()));
-      
+	res.add(new StatusTable.SummaryInfo(
+	    "Articles updated",
+	    ColumnDescriptor.TYPE_INT,
+	    task.getUpdatedArticleCount()));
+      } else {
+	res.add(new StatusTable.SummaryInfo(
+	    "Total duration",
+	    ColumnDescriptor.TYPE_TIME_INTERVAL,
+	    task.getEndTime() - task.getStartTime()));
+      }
+
       res.add(new StatusTable.SummaryInfo(
           null,
           ColumnDescriptor.TYPE_STRING,
           new StatusTable.Reference("AU configuration", 
               ArchivalUnitStatus.AU_DEFINITION_TABLE_NAME, 
-              au.getAuId())));
+              task.getAuId())));
   
       res.add(new StatusTable.SummaryInfo(
           null,
@@ -304,7 +320,7 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
    *          A ReindexingTask with the indexing task.
    * @return a String with the index type text to be displayed.
    */
-  private String getIndexTypeDisplayString(ReindexingTask task) {
+  private String getIndexTypeDisplayString(DisplayReindexingTask task) {
     return task.isNewAu() ? NEW_INDEX_TEXT :
       (task.needsFullReindex() ? FULL_REINDEX_TEXT : REINDEX_TEXT);
   }
@@ -463,11 +479,11 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
    * @param tasks the reindexing tasks
    * @return list of rows
    */
-  private List<Map<String,Object>> getTaskRows(Collection<ReindexingTask> tasks)
-  {
+  private List<Map<String,Object>>
+  getTaskRows(Collection<DisplayReindexingTask> tasks) {
     List<Map<String,Object>> rows = new ArrayList<Map<String,Object>>();
     int rowNum = 0;
-    for (ReindexingTask task : tasks) {
+    for (DisplayReindexingTask task : tasks) {
       String auName = task.getAuName();
       String auId = task.getAuId();
       boolean auNoSubstance = task.hasNoAuSubstance();
@@ -492,32 +508,46 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
         // invisible keys for sorting
         row.put(SORT_KEY1, SORT_BASE_WAITING);
         row.put(SORT_KEY2, rowNum);
-      } if (startUpdateTime == 0) {
-        // task is running but hasn't finished indexing yet
-        row.put(START_TIME_COL_NAME, startTime);
-        row.put(INDEX_DURATION_COL_NAME, curTime-startTime);
-        row.put(INDEX_STATUS_COL_NAME, "Indexing");
-        row.put(NUM_INDEXED_COL_NAME, numIndexed);
-        // invisible keys for sorting
-        row.put(SORT_KEY1, SORT_BASE_INDEXING);
-        row.put(SORT_KEY2, startTime);
       } else if (endTime == 0) {
-        // task is finished indexing but hasn't finished updating yet
-        row.put(START_TIME_COL_NAME, startTime);
-        row.put(INDEX_DURATION_COL_NAME, startUpdateTime-startTime);
-        row.put(UPDATE_DURATION_COL_NAME, curTime-startUpdateTime);
-        row.put(INDEX_STATUS_COL_NAME, "Updating");
-        row.put(NUM_INDEXED_COL_NAME, numIndexed);
-        row.put(NUM_UPDATED_COL_NAME, numUpdated);
-        // invisible keys for sorting
-        row.put(SORT_KEY1, SORT_BASE_INDEXING);
-        row.put(SORT_KEY2, startTime);
-
+        // task hasn't finished yet
+	if (startUpdateTime == 0) {
+	  // task is running but hasn't finished indexing yet
+	  row.put(START_TIME_COL_NAME, startTime);
+	  row.put(TOTAL_DURATION_COL_NAME, curTime-startTime);
+	  row.put(INDEX_DURATION_COL_NAME, curTime-startTime);
+	  row.put(INDEX_STATUS_COL_NAME, "Indexing");
+	  row.put(NUM_INDEXED_COL_NAME, numIndexed);
+	  // invisible keys for sorting
+	  row.put(SORT_KEY1, SORT_BASE_INDEXING);
+	  row.put(SORT_KEY2, startTime);
+	} else {
+	  // task is finished indexing but hasn't finished updating yet
+	  row.put(START_TIME_COL_NAME, startTime);
+	  row.put(TOTAL_DURATION_COL_NAME, curTime-startTime);
+	  row.put(INDEX_DURATION_COL_NAME, startUpdateTime-startTime);
+	  row.put(UPDATE_DURATION_COL_NAME, curTime-startUpdateTime);
+	  row.put(INDEX_STATUS_COL_NAME, "Updating");
+	  row.put(NUM_INDEXED_COL_NAME, numIndexed);
+	  row.put(NUM_UPDATED_COL_NAME, numUpdated);
+	  // invisible keys for sorting
+	  row.put(SORT_KEY1, SORT_BASE_INDEXING);
+	  row.put(SORT_KEY2, startTime);
+	}
       } else {
         // task is finished
         row.put(START_TIME_COL_NAME, startTime);
-        row.put(INDEX_DURATION_COL_NAME, startUpdateTime-startTime);
-        row.put(UPDATE_DURATION_COL_NAME, endTime-startUpdateTime);
+        row.put(TOTAL_DURATION_COL_NAME, endTime-startTime);
+
+        // Check whether there are separate indexing and updating statistics.
+        if (startUpdateTime != 0) {
+          // Yes: Use them.
+          row.put(INDEX_DURATION_COL_NAME, startUpdateTime-startTime);
+          row.put(UPDATE_DURATION_COL_NAME, endTime-startUpdateTime);
+
+          row.put(NUM_INDEXED_COL_NAME, numIndexed);
+          row.put(NUM_UPDATED_COL_NAME, numUpdated);
+        }
+
         Object status;
         switch (indexStatus) {
           case Success:
@@ -549,9 +579,6 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
         } else {
           row.put(INDEX_STATUS_COL_NAME, status);
         }
-
-        row.put(NUM_INDEXED_COL_NAME, numIndexed);
-        row.put(NUM_UPDATED_COL_NAME, numUpdated);
 
         // invisible keys for sorting
         row.put(SORT_KEY1, SORT_BASE_DONE);

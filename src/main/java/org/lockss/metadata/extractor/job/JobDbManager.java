@@ -1,6 +1,6 @@
 /*
 
-Copyright (c) 2016-2018 Board of Trustees of Leland Stanford Jr. University,
+Copyright (c) 2016-2019 Board of Trustees of Leland Stanford Jr. University,
 all rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -31,15 +31,12 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 package org.lockss.metadata.extractor.job;
 
-import java.io.File;
 import java.sql.Connection;
 import java.sql.SQLException;
 import org.lockss.app.ConfigurableManager;
-import org.lockss.config.ConfigManager;
 import org.lockss.config.Configuration;
-import org.lockss.db.DbManager;
 import org.lockss.db.DbException;
-import org.lockss.util.FileUtil;
+import org.lockss.db.DbManager;
 import org.lockss.util.Logger;
 
 /**
@@ -132,6 +129,12 @@ public class JobDbManager extends DbManager implements ConfigurableManager {
       + ".password";
 
   /**
+   * Name of the database schema. Changes require daemon restart.
+   */
+  public static final String PARAM_DATASOURCE_SCHEMA_NAME = DATASOURCE_ROOT
+      + ".schemaName";
+
+  /**
    * Set to false to prevent DbManager from running
    */
   public static final String PARAM_DBMANAGER_ENABLED = PREFIX + "enabled";
@@ -150,6 +153,13 @@ public class JobDbManager extends DbManager implements ConfigurableManager {
    * SQL statement fetch size.
    */
   public static final String PARAM_FETCH_SIZE = PREFIX + "fetchSize";
+
+  /**
+   * Indication of whether the startup code should wait for the external setup
+   * of the database. Changes require daemon restart.
+   */
+  public static final String PARAM_WAIT_FOR_EXTERNAL_SETUP = PREFIX
+      + ".waitForExternalSetup";
 
   // The SQL code executor.
   private JobDbManagerSql jobDbManagerSql = new JobDbManagerSql(null,
@@ -200,6 +210,7 @@ public class JobDbManager extends DbManager implements ConfigurableManager {
 			Configuration.Differences changedKeys) {
     final String DEBUG_HEADER = "setConfig(): ";
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Starting...");
+    super.setConfig(config, prevConfig, changedKeys);
 
     if (changedKeys.contains(PREFIX)) {
       // Update the reconfigured parameters.
@@ -267,24 +278,31 @@ public class JobDbManager extends DbManager implements ConfigurableManager {
     return config.get(PARAM_DATASOURCE_PASSWORD, DEFAULT_DATASOURCE_PASSWORD);
   }
 
+  /**
+   * Provides the full name of the database to be used.
+   * 
+   * @param config
+   *          A Configuration that may include the simple name of the database.
+   * @return a String with the full name of the database.
+   */
   @Override
   protected String getDataSourceDatabaseName(Configuration config) {
-    // Get the configured database name.
-    String dbName = config.get(PARAM_DATASOURCE_DATABASENAME,
-	  this.getClass().getSimpleName());
+    // Return the configured database name.
+    return getFullDataSourceDatabaseName(config.get(
+	PARAM_DATASOURCE_DATABASENAME,
+	getDatabaseNamePrefix() + this.getClass().getSimpleName()));
+  }
 
-    // Check whether it is a Derby database with a relative path database name.
-    if (isTypeDerby() && !dbName.startsWith(File.separator)) {
-      // Yes: Get the data source root directory.
-      String pathFromCache = "db/" + dbName;
-      File datasourceDir = ConfigManager.getConfigManager()
-	  .findConfiguredDataDir(pathFromCache, pathFromCache, false);
-
-      // Return the data source root directory.
-      return FileUtil.getCanonicalOrAbsolutePath(datasourceDir);
-    }
-
-    return dbName;
+  /**
+   * Provides the name of the database schema to be used.
+   * 
+   * @param config
+   *          A Configuration that includes the name of the database schema.
+   * @return a String with the name of the database schema.
+   */
+  @Override
+  protected String getDataSourceSchemaName(Configuration config) {
+    return config.get(PARAM_DATASOURCE_SCHEMA_NAME, getDataSourceUser(config));
   }
 
   @Override
@@ -314,6 +332,12 @@ public class JobDbManager extends DbManager implements ConfigurableManager {
   protected String getDerbyStreamErrorLogSeverityLevel(Configuration config) {
     return config.get(PARAM_DERBY_STREAM_ERROR_LOGSEVERITYLEVEL,
 	DEFAULT_DERBY_STREAM_ERROR_LOGSEVERITYLEVEL);
+  }
+
+  @Override
+  protected boolean getWaitForExternalSetup(Configuration config) {
+    return config.getBoolean(PARAM_WAIT_FOR_EXTERNAL_SETUP,
+	DEFAULT_WAIT_FOR_EXTERNAL_SETUP);
   }
 
   /**

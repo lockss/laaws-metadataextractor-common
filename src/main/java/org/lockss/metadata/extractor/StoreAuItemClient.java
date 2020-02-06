@@ -1,6 +1,6 @@
 /*
 
-Copyright (c) 2017-2018 Board of Trustees of Leland Stanford Jr. University,
+Copyright (c) 2017-2019 Board of Trustees of Leland Stanford Jr. University,
 all rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -31,6 +31,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 package org.lockss.metadata.extractor;
 
+import static org.lockss.metadata.MetadataConstants.*;
 import static org.lockss.metadata.extractor.MetadataExtractorManager.*;
 import java.nio.charset.Charset;
 import java.util.Base64;
@@ -60,7 +61,7 @@ public class StoreAuItemClient {
    *          An ItemMetadata with the metadata.
    * @return a Long with the database identifier of the metadata item.
    */
-  Long storeAuItem(ItemMetadata item) {
+  public Long storeAuItem(ItemMetadata item) {
     final String DEBUG_HEADER = "storeAuItem(): ";
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "item = " + item);
 
