@@ -86,8 +86,8 @@ public class DeleteAuItemsClient {
       log.debug3(DEBUG_HEADER + "password = '" + password + "'");
 
     // Initialize the request to the REST service.
-    RestTemplate restTemplate =
-	RestUtil.getRestTemplate(1000*timeoutValue, 1000*timeoutValue);
+    RestTemplate restTemplate = RestUtil.getSimpleFactoryRestTemplate(
+	1000*timeoutValue, 1000*timeoutValue, true);
 
     HttpHeaders headers = new HttpHeaders();
     headers.setContentType(MediaType.APPLICATION_JSON);
