@@ -77,6 +77,7 @@ import org.lockss.plugin.simulated.SimulatedPlugin;
 import org.lockss.test.*;
 import org.lockss.util.ExternalizableMap;
 import org.lockss.util.Logger;
+import org.lockss.util.MockLockssWatchdog;
 
 /**
  * Test class for org.lockss.metadata.AuMetadataRecorder
