@@ -77,6 +77,14 @@ POSSIBILITY OF SUCH DAMAGE.
       <scope>test</scope>
     </dependency>
 
+    <dependency>
+      <groupId>org.lockss</groupId>
+      <artifactId>lockss-util-core</artifactId>
+      <version>${version.lockss.lockss-util-core}</version>
+      <classifier>tests</classifier>
+      <scope>test</scope>
+    </dependency>
+
   </dependencies>
 
 </project>
