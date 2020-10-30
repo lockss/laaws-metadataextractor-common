@@ -37,7 +37,7 @@ import java.sql.Connection;
 import org.lockss.app.LockssApp;
 import org.lockss.app.LockssDaemon;
 import org.lockss.config.CurrentConfig;
-import org.lockss.daemon.LockssWatchdog;
+import org.lockss.util.LockssWatchdog;
 import org.lockss.db.JdbcContext;
 import org.lockss.metadata.MetadataConstants;
 import org.lockss.metadata.MetadataDbManager;

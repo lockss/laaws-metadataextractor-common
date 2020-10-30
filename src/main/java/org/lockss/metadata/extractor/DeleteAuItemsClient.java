@@ -1,6 +1,6 @@
 /*
 
-Copyright (c) 2017-2019 Board of Trustees of Leland Stanford Jr. University,
+Copyright (c) 2017-2020 Board of Trustees of Leland Stanford Jr. University,
 all rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -38,13 +38,13 @@ import java.nio.charset.Charset;
 import java.util.Base64;
 import org.lockss.config.CurrentConfig;
 import org.lockss.util.Logger;
+import org.lockss.util.rest.RestUtil;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 
 /**
@@ -72,7 +72,7 @@ public class DeleteAuItemsClient {
 	+ restServiceLocation);
 
     // Get the client connection timeout.
-    int timeoutValue = CurrentConfig.getIntParam(PARAM_MD_REST_TIMEOUT_VALUE,
+    long timeoutValue = CurrentConfig.getIntParam(PARAM_MD_REST_TIMEOUT_VALUE,
 	DEFAULT_MD_REST_TIMEOUT_VALUE);
     if (log.isDebug3())
       log.debug3(DEBUG_HEADER + "timeoutValue = " + timeoutValue);
@@ -86,12 +86,8 @@ public class DeleteAuItemsClient {
       log.debug3(DEBUG_HEADER + "password = '" + password + "'");
 
     // Initialize the request to the REST service.
-    RestTemplate restTemplate = new RestTemplate();
-    SimpleClientHttpRequestFactory requestFactory =
-	(SimpleClientHttpRequestFactory)restTemplate.getRequestFactory();
-
-    requestFactory.setReadTimeout(1000*timeoutValue);
-    requestFactory.setConnectTimeout(1000*timeoutValue);
+    RestTemplate restTemplate =
+	RestUtil.getRestTemplate(1000*timeoutValue, 1000*timeoutValue);
 
     HttpHeaders headers = new HttpHeaders();
     headers.setContentType(MediaType.APPLICATION_JSON);

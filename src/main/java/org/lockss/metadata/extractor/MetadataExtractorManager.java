@@ -1,6 +1,6 @@
 /*
 
-Copyright (c) 2013-2019 Board of Trustees of Leland Stanford Jr. University,
+Copyright (c) 2013-2020 Board of Trustees of Leland Stanford Jr. University,
 all rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -1493,7 +1493,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * 
    * @return a boolean with the indexing enabled state of this manager.
    */
-  boolean isIndexingEnabled() {
+  public boolean isIndexingEnabled() {
     return reindexingEnabled;
   }
 
