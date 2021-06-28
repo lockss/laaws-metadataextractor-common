@@ -8,3 +8,7 @@ derby.log
 /logs/
 
 /TAGS
+
+/pom.xml.bak
+/*/pom.xml.bak
+/.surefire-*

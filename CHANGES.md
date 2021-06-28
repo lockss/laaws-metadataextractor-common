@@ -1,8 +1,18 @@
-# Release Notes
+# `laaws-metadataextractor-common` Release Notes
 
-## Major Changes Since 2.0.4.0
+## Changes Since 2.0.5.0
 
-*   (highlights go here)
+*   Switched to a 3-part version numbering scheme.
+
+## 2.0.5.0
+
+### Features
+
+*   ...
+
+### Fixes
+
+*   ...
 
 ## 2.0.4.0
 

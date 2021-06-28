@@ -58,7 +58,7 @@ import org.lockss.metadata.ItemMetadata;
 import org.lockss.metadata.MetadataManager;
 import org.lockss.metadata.query.MetadataQueryManager;
 import org.lockss.util.CloseCallbackInputStream.DeleteFileOnCloseInputStream;
-import org.lockss.util.FileUtil;
+import org.lockss.util.io.FileUtil;
 import org.lockss.util.IOUtil;
 import org.lockss.util.Logger;
 import org.lockss.util.StringUtil;
