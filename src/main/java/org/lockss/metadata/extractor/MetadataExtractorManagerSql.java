@@ -711,16 +711,16 @@ public class MetadataExtractorManagerSql {
     final String DEBUG_HEADER = "removeFromPendingAus(): ";
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "auId = " + auId);
 
-    String pluginId = null;
+    String pluginKey = null;
     String auKey = null;
     PreparedStatement deletePendingAu =
 	dbManager.prepareStatement(conn, DELETE_PENDING_AU_QUERY);
 
     try {
-      pluginId = PluginManager.pluginIdFromAuId(auId);
+      pluginKey = PluginManager.pluginKeyFromAuId(auId);
       auKey = PluginManager.auKeyFromAuId(auId);
   
-      deletePendingAu.setString(1, pluginId);
+      deletePendingAu.setString(1, pluginKey);
       deletePendingAu.setString(2, auKey);
       int deletedCount = dbManager.executeUpdate(deletePendingAu);
       if (log.isDebug3())
@@ -730,7 +730,7 @@ public class MetadataExtractorManagerSql {
       log.error(message, sqle);
       log.error("auId = '" + auId + "'.");
       log.error("SQL = '" + DELETE_PENDING_AU_QUERY + "'.");
-      log.error("pluginId = '" + pluginId + "'.");
+      log.error("pluginKey = '" + pluginKey + "'.");
       log.error("auKey = '" + auKey + "'.");
       throw new DbException(message, sqle);
     } finally {
@@ -800,7 +800,7 @@ public class MetadataExtractorManagerSql {
     final String DEBUG_HEADER = "findAuMdByAuId(): ";
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "auId = " + auId);
 
-    String pluginId = null;
+    String pluginKey = null;
     String auKey = null;
     Long auMdSeq = null;
     PreparedStatement findAuMd =
@@ -808,13 +808,13 @@ public class MetadataExtractorManagerSql {
     ResultSet resultSet = null;
 
     try {
-      pluginId = PluginManager.pluginIdFromAuId(auId);
-      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginId() = " + pluginId);
+      pluginKey = PluginManager.pluginKeyFromAuId(auId);
+      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginKey() = " + pluginKey);
 
       auKey = PluginManager.auKeyFromAuId(auId);
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auKey = " + auKey);
 
-      findAuMd.setString(1, pluginId);
+      findAuMd.setString(1, pluginKey);
       findAuMd.setString(2, auKey);
       resultSet = dbManager.executeQuery(findAuMd);
 
@@ -827,7 +827,7 @@ public class MetadataExtractorManagerSql {
       log.error(message, sqle);
       log.error("auId = " + auId);
       log.error("SQL = '" + FIND_AU_MD_BY_AU_ID_QUERY + "'.");
-      log.error("pluginId = " + pluginId);
+      log.error("pluginKey = " + pluginKey);
       log.error("auKey = " + auKey);
       throw new DbException(message, sqle);
     } finally {
@@ -896,21 +896,21 @@ public class MetadataExtractorManagerSql {
     final String DEBUG_HEADER = "findAuByAuId(): ";
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "auId = " + auId);
 
-    String pluginId = PluginManager.pluginIdFromAuId(auId);
-    String auKey = PluginManager.auKeyFromAuId(auId);
+    String pluginKey = null;
+    String auKey = null;
     Long auSeq = null;
     PreparedStatement findAu =
 	dbManager.prepareStatement(conn, FIND_AU_BY_AU_ID_QUERY);
     ResultSet resultSet = null;
 
     try {
-      pluginId = PluginManager.pluginIdFromAuId(auId);
-      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginId() = " + pluginId);
+      pluginKey = PluginManager.pluginKeyFromAuId(auId);
+      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginKey() = " + pluginKey);
 
       auKey = PluginManager.auKeyFromAuId(auId);
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auKey = " + auKey);
 
-      findAu.setString(1, pluginId);
+      findAu.setString(1, pluginKey);
       findAu.setString(2, auKey);
       resultSet = dbManager.executeQuery(findAu);
 
@@ -923,7 +923,7 @@ public class MetadataExtractorManagerSql {
       log.error(message, sqle);
       log.error("auId = " + auId);
       log.error("SQL = '" + FIND_AU_BY_AU_ID_QUERY + "'.");
-      log.error("pluginId = " + pluginId);
+      log.error("pluginKey = " + pluginKey);
       log.error("auKey = " + auKey);
       throw new DbException(message, sqle);
     } finally {
@@ -991,16 +991,16 @@ public class MetadataExtractorManagerSql {
     final String DEBUG_HEADER = "removeDisabledFromPendingAus(): ";
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "auId = " + auId);
 
-    String pluginId = null;
+    String pluginKey = null;
     String auKey = null;
     PreparedStatement deletePendingAu =
 	dbManager.prepareStatement(conn, DELETE_DISABLED_PENDING_AU_QUERY);
 
     try {
-      pluginId = PluginManager.pluginIdFromAuId(auId);
+      pluginKey = PluginManager.pluginKeyFromAuId(auId);
       auKey = PluginManager.auKeyFromAuId(auId);
   
-      deletePendingAu.setString(1, pluginId);
+      deletePendingAu.setString(1, pluginKey);
       deletePendingAu.setString(2, auKey);
       dbManager.executeUpdate(deletePendingAu);
     } catch (SQLException sqle) {
@@ -1008,7 +1008,7 @@ public class MetadataExtractorManagerSql {
       log.error(message, sqle);
       log.error("auId = '" + auId + "'.");
       log.error("SQL = '" + DELETE_DISABLED_PENDING_AU_QUERY + "'.");
-      log.error("pluginId = '" + pluginId + "'.");
+      log.error("pluginKey = '" + pluginKey + "'.");
       log.error("auKey = '" + auKey + "'.");
       throw new DbException(message, sqle);
     } finally {
@@ -1065,7 +1065,7 @@ public class MetadataExtractorManagerSql {
    * 
    * @param conn
    *          A Connection with the database connection to be used.
-   * @param pluginId
+   * @param pluginKey
    *          A String with the plugin identifier.
    * @param auKey
    *          A String with the Archival Unit key.
@@ -1074,11 +1074,11 @@ public class MetadataExtractorManagerSql {
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
-  boolean isAuPending(Connection conn, String pluginId, String auKey)
+  boolean isAuPending(Connection conn, String pluginKey, String auKey)
       throws DbException {
     final String DEBUG_HEADER = "isAuPending(): ";
     if (log.isDebug2()) {
-      log.debug2(DEBUG_HEADER + "pluginId = " + pluginId);
+      log.debug2(DEBUG_HEADER + "pluginKey = " + pluginKey);
       log.debug2(DEBUG_HEADER + "auKey = " + auKey);
     }
 
@@ -1090,7 +1090,7 @@ public class MetadataExtractorManagerSql {
       selectPendingAu = dbManager.prepareStatement(conn, FIND_PENDING_AU_QUERY);
 
       // Find the AU in the table.
-      selectPendingAu.setString(1, pluginId);
+      selectPendingAu.setString(1, pluginKey);
       selectPendingAu.setString(2, auKey);
       results = dbManager.executeQuery(selectPendingAu);
       result = results.next();
@@ -1098,7 +1098,7 @@ public class MetadataExtractorManagerSql {
       String message = "Cannot find pending AU";
       log.error(message, sqle);
       log.error("SQL = '" + FIND_PENDING_AU_QUERY + "'.");
-      log.error("pluginId = '" + pluginId + "'.");
+      log.error("pluginKey = '" + pluginKey + "'.");
       log.error("auKey = '" + auKey + "'.");
       throw new DbException(message, sqle);
     } finally {
@@ -1114,7 +1114,7 @@ public class MetadataExtractorManagerSql {
    * Adds an Archival Unit to the batch of Archival Units to be added to the
    * pending Archival Units table in the database.
    * 
-   * @param pluginId
+   * @param pluginKey
    *          A String with the plugin identifier.
    * @param auKey
    *          A String with the Archival Unit key.
@@ -1127,10 +1127,10 @@ public class MetadataExtractorManagerSql {
    * @throws SQLException
    *           if any problem occurred accessing the database.
    */
-  void addAuToPendingAusBatch(String pluginId, String auKey,
+  void addAuToPendingAusBatch(String pluginKey, String auKey,
       boolean fullReindex, PreparedStatement insertPendingAuBatchStatement)
 	  throws SQLException {
-    insertPendingAuBatchStatement.setString(1, pluginId);
+    insertPendingAuBatchStatement.setString(1, pluginKey);
     insertPendingAuBatchStatement.setString(2, auKey);
     insertPendingAuBatchStatement.setBoolean(3, fullReindex);
     insertPendingAuBatchStatement.addBatch();
@@ -1205,7 +1205,7 @@ public class MetadataExtractorManagerSql {
     final String DEBUG_HEADER = "getAuMetadataVersion(): ";
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "au = " + au);
 
-    String pluginId = null;
+    String pluginKey = null;
     String auKey = null;
     int version = UNKNOWN_VERSION;
     PreparedStatement selectMetadataVersion = null;
@@ -1213,15 +1213,15 @@ public class MetadataExtractorManagerSql {
 
     try {
       String auId = au.getAuId();
-      pluginId = PluginManager.pluginIdFromAuId(auId);
-      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginId() = " + pluginId);
+      pluginKey = PluginManager.pluginKeyFromAuId(auId);
+      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginKey() = " + pluginKey);
 
       auKey = PluginManager.auKeyFromAuId(auId);
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auKey = " + auKey);
 
       selectMetadataVersion =
 	  dbManager.prepareStatement(conn, FIND_AU_METADATA_VERSION_QUERY);
-      selectMetadataVersion.setString(1, pluginId);
+      selectMetadataVersion.setString(1, pluginKey);
       selectMetadataVersion.setString(2, auKey);
       resultSet = dbManager.executeQuery(selectMetadataVersion);
 
@@ -1234,7 +1234,7 @@ public class MetadataExtractorManagerSql {
       log.error(message, sqle);
       log.error("au = '" + au + "'.");
       log.error("SQL = '" + FIND_AU_METADATA_VERSION_QUERY + "'.");
-      log.error("pluginId = '" + pluginId + "'.");
+      log.error("pluginKey = '" + pluginKey + "'.");
       log.error("auKey = '" + auKey + "'.");
       throw new DbException(message, sqle);
     } finally {
@@ -1265,8 +1265,8 @@ public class MetadataExtractorManagerSql {
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "au = " + au);
 
     String auId = au.getAuId();
-    String pluginId = PluginManager.pluginIdFromAuId(auId);
-    if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginId() = " + pluginId);
+    String pluginKey = PluginManager.pluginKeyFromAuId(auId);
+    if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginKey() = " + pluginKey);
 
     String auKey = PluginManager.auKeyFromAuId(auId);
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auKey = " + auKey);
@@ -1278,7 +1278,7 @@ public class MetadataExtractorManagerSql {
     try {
       selectFullReindexing =
           dbManager.prepareStatement(conn, FIND_AU_FULL_REINDEXING_BY_AU_QUERY);
-      selectFullReindexing.setString(1, pluginId);
+      selectFullReindexing.setString(1, pluginKey);
       selectFullReindexing.setString(2, auKey);
       resultSet = dbManager.executeQuery(selectFullReindexing);
   
@@ -1292,7 +1292,7 @@ public class MetadataExtractorManagerSql {
       log.error(message, sqle);
       log.error("au = '" + au + "'.");
       log.error("SQL = '" + FIND_AU_FULL_REINDEXING_BY_AU_QUERY + "'.");
-      log.error("pluginId = '" + pluginId + "'.");
+      log.error("pluginKey = '" + pluginKey + "'.");
       log.error("auKey = '" + auKey + "'.");
       throw new DbException(message, sqle);
     } finally {
@@ -1329,8 +1329,8 @@ public class MetadataExtractorManagerSql {
     String auId = au.getAuId();
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auId = " + auId);
 
-    String pluginId = PluginManager.pluginIdFromAuId(auId);
-    if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginId() = " + pluginId);
+    String pluginKey = PluginManager.pluginKeyFromAuId(auId);
+    if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginKey() = " + pluginKey);
 
     String auKey = PluginManager.auKeyFromAuId(auId);
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auKey = " + auKey);
@@ -1339,7 +1339,7 @@ public class MetadataExtractorManagerSql {
       updateFullReindexing =
         dbManager.prepareStatement(conn, UPDATE_AU_FULL_REINDEXING_QUERY);
       updateFullReindexing.setBoolean(1, fullReindexing);
-      updateFullReindexing.setString(2, pluginId);
+      updateFullReindexing.setString(2, pluginKey);
       updateFullReindexing.setString(3, auKey);
       dbManager.executeUpdate(updateFullReindexing);
     } catch (SQLException sqle) {
@@ -1348,7 +1348,7 @@ public class MetadataExtractorManagerSql {
       log.error("au = '" + au + "'.");
       log.error("SQL = '" + UPDATE_AU_FULL_REINDEXING_QUERY + "'.");
       log.error("fullReindexing = '" + fullReindexing + "'.");
-      log.error("pluginId = '" + pluginId + "'.");
+      log.error("pluginKey = '" + pluginKey + "'.");
       log.error("auKey = '" + auKey + "'.");
       throw new DbException(message, sqle);
     } finally {
@@ -1374,7 +1374,7 @@ public class MetadataExtractorManagerSql {
     final String DEBUG_HEADER = "getAuExtractionTime(): ";
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "au = " + au);
 
-    String pluginId = null;
+    String pluginKey = null;
     String auKey = null;
     long timestamp = NEVER_EXTRACTED_EXTRACTION_TIME;
     PreparedStatement selectLastExtractionTime = null;
@@ -1382,15 +1382,15 @@ public class MetadataExtractorManagerSql {
 
     try {
       String auId = au.getAuId();
-      pluginId = PluginManager.pluginIdFromAuId(auId);
-      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginId() = " + pluginId);
+      pluginKey = PluginManager.pluginKeyFromAuId(auId);
+      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginKey() = " + pluginKey);
 
       auKey = PluginManager.auKeyFromAuId(auId);
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auKey = " + auKey);
 
       selectLastExtractionTime =
 	  dbManager.prepareStatement(conn, FIND_AU_MD_EXTRACT_TIME_BY_AU_QUERY);
-      selectLastExtractionTime.setString(1, pluginId);
+      selectLastExtractionTime.setString(1, pluginKey);
       selectLastExtractionTime.setString(2, auKey);
       resultSet = dbManager.executeQuery(selectLastExtractionTime);
 
@@ -1404,7 +1404,7 @@ public class MetadataExtractorManagerSql {
       log.error(message, sqle);
       log.error("au = '" + au + "'.");
       log.error("SQL = '" + FIND_AU_MD_EXTRACT_TIME_BY_AU_QUERY + "'.");
-      log.error("pluginId = '" + pluginId + "'.");
+      log.error("pluginKey = '" + pluginKey + "'.");
       log.error("auKey = '" + auKey + "'.");
       throw new DbException(message, sqle);
     } finally {
@@ -1431,18 +1431,18 @@ public class MetadataExtractorManagerSql {
     final String DEBUG_HEADER = "addDisabledAuToPendingAus(): ";
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "auId = " + auId);
 
-    String pluginId = null;
+    String pluginKey = null;
     String auKey = null;
     PreparedStatement addPendingAuStatement =
 	dbManager.prepareStatement(conn, INSERT_DISABLED_PENDING_AU_QUERY);
 
     try {
-      pluginId = PluginManager.pluginIdFromAuId(auId);
-      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginId = " + pluginId);
+      pluginKey = PluginManager.pluginKeyFromAuId(auId);
+      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginKey = " + pluginKey);
       auKey = PluginManager.auKeyFromAuId(auId);
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auKey = " + auKey);
 
-      addPendingAuStatement.setString(1, pluginId);
+      addPendingAuStatement.setString(1, pluginKey);
       addPendingAuStatement.setString(2, auKey);
       int count = dbManager.executeUpdate(addPendingAuStatement);
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "count = " + count);
@@ -1451,7 +1451,7 @@ public class MetadataExtractorManagerSql {
       log.error(message, sqle);
       log.error("auId = '" + auId + "'.");
       log.error("SQL = '" + INSERT_PLATFORM_QUERY + "'.");
-      log.error("pluginId = '" + pluginId + "'.");
+      log.error("pluginKey = '" + pluginKey + "'.");
       log.error("auKey = '" + auKey + "'.");
       throw new DbException(message, sqle);
     } finally {
@@ -1476,19 +1476,19 @@ public class MetadataExtractorManagerSql {
     final String DEBUG_HEADER = "addFailedIndexingAuToPendingAus(): ";
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "auId = " + auId);
 
-    String pluginId = null;
+    String pluginKey = null;
     String auKey = null;
     PreparedStatement addPendingAuStatement =
 	dbManager.prepareStatement(conn,
 	    INSERT_FAILED_INDEXING_PENDING_AU_QUERY);
 
     try {
-      pluginId = PluginManager.pluginIdFromAuId(auId);
-      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginId = " + pluginId);
+      pluginKey = PluginManager.pluginKeyFromAuId(auId);
+      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginKey = " + pluginKey);
       auKey = PluginManager.auKeyFromAuId(auId);
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auKey = " + auKey);
 
-      addPendingAuStatement.setString(1, pluginId);
+      addPendingAuStatement.setString(1, pluginKey);
       addPendingAuStatement.setString(2, auKey);
       int count = dbManager.executeUpdate(addPendingAuStatement);
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "count = " + count);
@@ -1497,7 +1497,7 @@ public class MetadataExtractorManagerSql {
       log.error(message, sqle);
       log.error("auId = '" + auId + "'.");
       log.error("SQL = '" + INSERT_PLATFORM_QUERY + "'.");
-      log.error("pluginId = '" + pluginId + "'.");
+      log.error("pluginKey = '" + pluginKey + "'.");
       log.error("auKey = '" + auKey + "'.");
       throw new DbException(message, sqle);
     } finally {
@@ -1832,7 +1832,7 @@ public class MetadataExtractorManagerSql {
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "auId = " + auId);
 
     PreparedStatement deleteUnconfiguredAu = null;
-    String pluginId = null;
+    String pluginKey = null;
     String auKey = null;
 
     try {
@@ -1841,12 +1841,12 @@ public class MetadataExtractorManagerSql {
 	deleteUnconfiguredAu =
 	    dbManager.prepareStatement(conn, DELETE_UNCONFIGURED_AU_QUERY);
 
-	pluginId = PluginManager.pluginIdFromAuId(auId);
-	if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginId = " + pluginId);
+	pluginKey = PluginManager.pluginKeyFromAuId(auId);
+	if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginKey = " + pluginKey);
 	auKey = PluginManager.auKeyFromAuId(auId);
 	if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auKey = " + auKey);
 
-	deleteUnconfiguredAu.setString(1, pluginId);
+	deleteUnconfiguredAu.setString(1, pluginKey);
 	deleteUnconfiguredAu.setString(2, auKey);
 	int count = dbManager.executeUpdate(deleteUnconfiguredAu);
 	if (log.isDebug3()) log.debug3(DEBUG_HEADER + "count = " + count);
@@ -1857,14 +1857,14 @@ public class MetadataExtractorManagerSql {
       log.error(message, sqle);
       log.error("auId = " + auId);
       log.error("SQL = '" + DELETE_UNCONFIGURED_AU_QUERY + "'.");
-      log.error("pluginId = " + pluginId);
+      log.error("pluginKey = " + pluginKey);
       log.error("auKey = " + auKey);
     } catch (DbException dbe) {
       String message = "Cannot delete archival unit from unconfigured table";
       log.error(message, dbe);
       log.error("auId = " + auId);
       log.error("SQL = '" + DELETE_UNCONFIGURED_AU_QUERY + "'.");
-      log.error("pluginId = " + pluginId);
+      log.error("pluginKey = " + pluginKey);
       log.error("auKey = " + auKey);
     } finally {
       DbManager.safeCloseStatement(deleteUnconfiguredAu);
@@ -1984,7 +1984,7 @@ public class MetadataExtractorManagerSql {
 
     Connection conn = jdbcCtxt.getConnection();
 
-    String pluginId = null;
+    String pluginKey = null;
     String auKey = null;
     Long auMdSeq = null;
     PreparedStatement findAuMd =
@@ -1993,13 +1993,13 @@ public class MetadataExtractorManagerSql {
     jdbcCtxt.setStatement(findAuMd);
 
     try {
-      pluginId = PluginManager.pluginIdFromAuId(auId);
-      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginId() = " + pluginId);
+      pluginKey = PluginManager.pluginKeyFromAuId(auId);
+      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginKey() = " + pluginKey);
 
       auKey = PluginManager.auKeyFromAuId(auId);
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auKey = " + auKey);
 
-      findAuMd.setString(1, pluginId);
+      findAuMd.setString(1, pluginKey);
       findAuMd.setString(2, auKey);
       resultSet = dbManager.executeQuery(findAuMd);
 
@@ -2012,7 +2012,7 @@ public class MetadataExtractorManagerSql {
       log.error(message, sqle);
       log.error("auId = " + auId);
       log.error("SQL = '" + FIND_AU_MD_BY_AU_ID_QUERY + "'.");
-      log.error("pluginId = " + pluginId);
+      log.error("pluginKey = " + pluginKey);
       log.error("auKey = " + auKey);
       throw new DbException(message, sqle);
     } finally {

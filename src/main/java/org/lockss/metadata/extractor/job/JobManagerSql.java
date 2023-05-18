@@ -690,7 +690,7 @@ public class JobManagerSql {
 
     List<JobAuStatus> jobs = new ArrayList<JobAuStatus>();
 
-    String pluginId = null;
+    String pluginKey = null;
     String auKey = null;
     PreparedStatement findJobs =
 	dbManager.prepareStatement(conn, FIND_AU_JOB_QUERY);
@@ -701,8 +701,8 @@ public class JobManagerSql {
     try {
 
       // Get the Archival Unit jobs.
-      pluginId = PluginManager.pluginIdFromAuId(auId);
-      findJobs.setString(1, pluginId);
+      pluginKey = PluginManager.pluginKeyFromAuId(auId);
+      findJobs.setString(1, pluginKey);
 
       auKey = PluginManager.auKeyFromAuId(auId);
       findJobs.setString(2, auKey);
@@ -723,7 +723,7 @@ public class JobManagerSql {
       log.error(message, sqle);
       log.error("SQL = '" + FIND_AU_JOB_QUERY + "'.");
       log.error("auId = " + auId);
-      log.error("pluginId = " + pluginId);
+      log.error("pluginKey = " + pluginKey);
       log.error("auKey = " + auKey);
       throw new DbException(message, sqle);
     } catch (DbException dbe) {
@@ -731,7 +731,7 @@ public class JobManagerSql {
       log.error(message, dbe);
       log.error("SQL = '" + FIND_AU_JOB_QUERY + "'.");
       log.error("auId = " + auId);
-      log.error("pluginId = " + pluginId);
+      log.error("pluginKey = " + pluginKey);
       log.error("auKey = " + auKey);
       throw dbe;
     } finally {
@@ -779,7 +779,7 @@ public class JobManagerSql {
       log.debug(DEBUG_HEADER + "statusMessage = " + statusMessage);
     }
 
-    String pluginId = null;
+    String pluginKey = null;
     String auKey = null;
     ResultSet resultSet = null;
     Long jobSeq = null;
@@ -804,8 +804,8 @@ public class JobManagerSql {
 	createJob.setNull(2, VARCHAR);
       }
 
-      pluginId = PluginManager.pluginIdFromAuId(auId);
-      createJob.setString(3, pluginId);
+      pluginKey = PluginManager.pluginKeyFromAuId(auId);
+      createJob.setString(3, pluginKey);
 
       auKey = PluginManager.auKeyFromAuId(auId);
       createJob.setString(4, auKey);
@@ -850,7 +850,7 @@ public class JobManagerSql {
       log.error("jobTypeSeq = " + jobTypeSeq);
       log.error("description = " + description);
       log.error("auId = " + auId);
-      log.error("pluginId = " + pluginId);
+      log.error("pluginKey = " + pluginKey);
       log.error("auKey = " + auKey);
       log.error("creationTime = " + creationTime);
       log.error("startTime = " + startTime);
@@ -865,7 +865,7 @@ public class JobManagerSql {
       log.error("jobTypeSeq = " + jobTypeSeq);
       log.error("description = " + description);
       log.error("auId = " + auId);
-      log.error("pluginId = " + pluginId);
+      log.error("pluginKey = " + pluginKey);
       log.error("auKey = " + auKey);
       log.error("creationTime = " + creationTime);
       log.error("startTime = " + startTime);
