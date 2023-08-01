@@ -86,6 +86,7 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
   private static final String INDEX_STATUS_COL_NAME = "status";
   private static final String NUM_INDEXED_COL_NAME = "num_indexed";
   private static final String NUM_UPDATED_COL_NAME = "num_updated";
+  private static final String AUID_COL_NAME = "auid";
   // Sort keys, not visible columns
   private static final String SORT_KEY1 = "sort1";
   private static final String SORT_KEY2 = "sort2";
@@ -126,6 +127,8 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
                              "Duration of updating stored metadata."),
         new ColumnDescriptor(NUM_UPDATED_COL_NAME, "Articles Updated",
                              ColumnDescriptor.TYPE_INT),
+        new ColumnDescriptor(AUID_COL_NAME, "AUID",
+                             ColumnDescriptor.TYPE_STRING),
       });
 
   // ascending by category, descending start or end time
@@ -448,6 +451,7 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
       } else {
         String auName = au.getName();
         Map<String,Object> row = new HashMap<String,Object>();
+        row.put(AUID_COL_NAME, pendingAuId.auId);
         row.put(AU_COL_NAME,
                 new StatusTable.Reference(auName,
                                           ArchivalUnitStatus.
@@ -591,17 +595,6 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
     return rows;
   }
 
-  private List<ColumnDescriptor> getColDescs() {
-    List<ColumnDescriptor> res =
-	new ArrayList<ColumnDescriptor>(colDescs.size());
-
-    for (ColumnDescriptor desc : colDescs) {
-      res.add(desc);
-    }
-
-    return res;
-  }
-
   @Override
   public void populateTable(StatusTable table) throws NoSuchTableException {
     key = (table.getKey() == null) ? "indexing" : table.getKey();
@@ -625,7 +618,7 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
         table.setRows(getTaskRows(mdxMgr.getReindexingTasks()));
       }
       table.setDefaultSortRules(sortRules);
-      table.setColumnDescriptors(getColDescs());
+      table.setColumnDescriptors(colDescs, "-" + AUID_COL_NAME);
       table.setSummaryInfo(getSummaryInfo());
     }
   }
