@@ -1763,14 +1763,14 @@ public class MetadataExtractorManager extends BaseLockssManager implements
               + " to pending list because it has no metadata");
         } else {
           String auid = au.getAuId();
-          String pluginId = PluginManager.pluginIdFromAuId(auid);
+          String pluginKey = PluginManager.pluginKeyFromAuId(auid);
           String auKey = PluginManager.auKeyFromAuId(auid);
 
-          if (!mdxManagerSql.isAuPending(conn, pluginId, auKey)) {
+          if (!mdxManagerSql.isAuPending(conn, pluginKey, auKey)) {
             // Only insert if entry does not exist.
 	    log.debug3(DEBUG_HEADER + "Adding au " + au.getName()
 		+ " to pending list");
-            mdxManagerSql.addAuToPendingAusBatch(pluginId, auKey, fullReindex,
+            mdxManagerSql.addAuToPendingAusBatch(pluginKey, auKey, fullReindex,
         	insertPendingAuBatchStatement);
             pendingAuBatchCurrentSize++;
 	    log.debug3(DEBUG_HEADER + "pendingAuBatchCurrentSize = "
@@ -2739,7 +2739,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 
     // Find the plugin.
     Long pluginSeq =
-	  mdManager.findPlugin(conn, PluginManager.pluginIdFromAuId(auId));
+	  mdManager.findPlugin(conn, PluginManager.pluginKeyFromAuId(auId));
 
     // Check whether the plugin exists.
     if (pluginSeq != null) {

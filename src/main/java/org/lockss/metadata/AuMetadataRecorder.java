@@ -53,9 +53,6 @@ import org.lockss.db.DbManager;
 import org.lockss.exporter.counter.CounterReportsManager;
 import org.lockss.extractor.MetadataField;
 import org.lockss.metadata.ArticleMetadataBuffer.ArticleMetadataInfo;
-import org.lockss.metadata.ItemMetadata;
-import org.lockss.metadata.MetadataDbManager;
-import org.lockss.metadata.MetadataManager;
 import org.lockss.metadata.extractor.MetadataExtractorManager;
 import org.lockss.metadata.extractor.MetadataExtractorManagerSql;
 import org.lockss.metadata.extractor.ReindexingTask;
@@ -253,7 +250,7 @@ public class AuMetadataRecorder {
   private final int pluginVersion;
   private final String auId;
   private final String auKey;
-  private final String pluginId;
+  private final String pluginKey;
   private final boolean isBulkContent;
 
   // Database identifiers related to the AU. 
@@ -341,7 +338,7 @@ public class AuMetadataRecorder {
 
     this.auId = auId;
     auKey = PluginManager.auKeyFromAuId(auId);
-    pluginId = PluginManager.pluginIdFromAuId(auId);
+    pluginKey = PluginManager.pluginKeyFromAuId(auId);
   }
 
   /**
@@ -2115,12 +2112,12 @@ public class AuMetadataRecorder {
 	dbManager.prepareStatement(conn, FIND_AU_PROBLEMS_QUERY);
 
     try {
-      String pluginId = PluginManager.pluginIdFromAuId(auId);
-      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginId = " + pluginId);
+      String pluginKey = PluginManager.pluginKeyFromAuId(auId);
+      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginKey = " + pluginKey);
       String auKey = PluginManager.auKeyFromAuId(auId);
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auKey = " + auKey);
 
-      findProblems.setString(1, pluginId);
+      findProblems.setString(1, pluginKey);
       findProblems.setString(2, auKey);
       results = dbManager.executeQuery(findProblems);
 
@@ -2162,12 +2159,12 @@ public class AuMetadataRecorder {
 	dbManager.prepareStatement(conn, DELETE_AU_PROBLEM_QUERY);
 
     try {
-      String pluginId = PluginManager.pluginIdFromAuId(auId);
-      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginId = " + pluginId);
+      String pluginKey = PluginManager.pluginKeyFromAuId(auId);
+      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginKey = " + pluginKey);
       String auKey = PluginManager.auKeyFromAuId(auId);
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auKey = " + auKey);
 
-      deleteAuProblem.setString(1, pluginId);
+      deleteAuProblem.setString(1, pluginKey);
       deleteAuProblem.setString(2, auKey);
       deleteAuProblem.setString(3, problem);
       int count = dbManager.executeUpdate(deleteAuProblem);
@@ -2202,12 +2199,12 @@ public class AuMetadataRecorder {
 	dbManager.prepareStatement(conn, INSERT_AU_PROBLEM_QUERY);
 
     try {
-      String pluginId = PluginManager.pluginIdFromAuId(auId);
-      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginId = " + pluginId);
+      String pluginKey = PluginManager.pluginKeyFromAuId(auId);
+      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginKey = " + pluginKey);
       String auKey = PluginManager.auKeyFromAuId(auId);
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auKey = " + auKey);
 
-      addAuProblemStatement.setString(1, pluginId);
+      addAuProblemStatement.setString(1, pluginKey);
       addAuProblemStatement.setString(2, auKey);
       addAuProblemStatement.setString(3, problem);
       int count = dbManager.executeUpdate(addAuProblemStatement);
@@ -2755,12 +2752,12 @@ public class AuMetadataRecorder {
       }
 
       // Find the plugin or create it.
-      pluginSeq = mdManager.findOrCreatePlugin(conn, pluginId, platformSeq,
+      pluginSeq = mdManager.findOrCreatePlugin(conn, pluginKey, platformSeq,
 	  isBulkContent);
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginSeq = " + pluginSeq);
 
       if (pluginSeq == null) {
-  	String message = "Cannot find or create plugin '" + pluginId
+  	String message = "Cannot find or create plugin '" + pluginKey
   	    + "' for platform '" + platform + "'";
   	log.error(message);
   	log.error("platformSeq = " + platformSeq);
@@ -2776,7 +2773,7 @@ public class AuMetadataRecorder {
 
       if (auSeq == null) {
   	String message = "Cannot find or create AU '" + auKey + "' for plugin '"
-  	    + pluginId + "'";
+  	    + pluginKey + "'";
   	log.error(message);
   	log.error("pluginSeq = " + pluginSeq);
   	throw new MetadataIndexingException(message);
@@ -2819,7 +2816,7 @@ public class AuMetadataRecorder {
 
     if (auMdSeq == null) {
       String message = "Cannot create AuMd for '" + auKey + "' and plugin '"
-	  + pluginId + "'";
+	  + pluginKey + "'";
       log.error(message);
       throw new MetadataIndexingException(message);
     }

@@ -239,7 +239,7 @@ public class MetadataQueryManagerSql {
   Long findAuMdByAuId(Connection conn, String auId) throws DbException {
     log.debug2("auId = {}", auId);
 
-    String pluginId = null;
+    String pluginKey = null;
     String auKey = null;
     Long auMdSeq = null;
     PreparedStatement findAuMd =
@@ -247,13 +247,13 @@ public class MetadataQueryManagerSql {
     ResultSet resultSet = null;
 
     try {
-      pluginId = PluginManager.pluginIdFromAuId(auId);
-      log.trace("pluginId() = {}", pluginId);
+      pluginKey = PluginManager.pluginKeyFromAuId(auId);
+      log.trace("pluginKey = {}", pluginKey);
 
       auKey = PluginManager.auKeyFromAuId(auId);
       log.trace("auKey = {}", auKey);
 
-      findAuMd.setString(1, pluginId);
+      findAuMd.setString(1, pluginKey);
       findAuMd.setString(2, auKey);
       resultSet = dbManager.executeQuery(findAuMd);
 
@@ -266,7 +266,7 @@ public class MetadataQueryManagerSql {
       log.error(message, sqle);
       log.error("auId = {}", auId);
       log.error("SQL = '{}'", FIND_AU_MD_BY_AU_ID_QUERY);
-      log.error("pluginId = {}", pluginId);
+      log.error("pluginKey = {}", pluginKey);
       log.error("auKey = {}", auKey);
       throw new DbException(message, sqle);
     } finally {
@@ -292,21 +292,21 @@ public class MetadataQueryManagerSql {
   Long findAuByAuId(Connection conn, String auId) throws DbException {
     log.debug2("auId = {}", auId);
 
-    String pluginId = PluginManager.pluginIdFromAuId(auId);
-    String auKey = PluginManager.auKeyFromAuId(auId);
+    String pluginKey = null;
+    String auKey = null;
     Long auSeq = null;
     PreparedStatement findAu =
 	dbManager.prepareStatement(conn, FIND_AU_BY_AU_ID_QUERY);
     ResultSet resultSet = null;
 
     try {
-      pluginId = PluginManager.pluginIdFromAuId(auId);
-      log.trace("pluginId = {}", pluginId);
+      pluginKey = PluginManager.pluginKeyFromAuId(auId);
+      log.trace("pluginKey = {}", pluginKey);
 
       auKey = PluginManager.auKeyFromAuId(auId);
       log.trace("auKey = {}", auKey);
 
-      findAu.setString(1, pluginId);
+      findAu.setString(1, pluginKey);
       findAu.setString(2, auKey);
       resultSet = dbManager.executeQuery(findAu);
 
@@ -319,7 +319,7 @@ public class MetadataQueryManagerSql {
       log.error(message, sqle);
       log.error("auId = {}", auId);
       log.error("SQL = '{}'", FIND_AU_BY_AU_ID_QUERY);
-      log.error("pluginId = {}", pluginId);
+      log.error("pluginKey = {}", pluginKey);
       log.error("auKey = {}", auKey);
       throw new DbException(message, sqle);
     } finally {
@@ -674,7 +674,7 @@ public class MetadataQueryManagerSql {
 
     Map<Long, ItemMetadata> itemMap = new HashMap<Long, ItemMetadata>();
 
-    String pluginId = null;
+    String pluginKey = null;
     String auKey = null;
     Long previousMdItemSeq = null;
     ItemMetadata itemMetadata = null;
@@ -689,13 +689,13 @@ public class MetadataQueryManagerSql {
     boolean hasMore = false;
 
     try {
-      pluginId = PluginManager.pluginIdFromAuId(auId);
-      log.trace("pluginId() = {}", pluginId);
+      pluginKey = PluginManager.pluginKeyFromAuId(auId);
+      log.trace("pluginKey = {}", pluginKey);
 
       auKey = PluginManager.auKeyFromAuId(auId);
       log.trace("auKey = {}", auKey);
 
-      getScalarMetadata.setString(1, pluginId);
+      getScalarMetadata.setString(1, pluginKey);
       getScalarMetadata.setString(2, auKey);
 
       // Handle the first page of requested results.
@@ -1022,7 +1022,7 @@ public class MetadataQueryManagerSql {
       log.error("limit = {}", limit);
       log.error("lastItemMdItemSeq = {}", lastItemMdItemSeq);
       log.error("SQL = '{}'", sql);
-      log.error("pluginId = '{}'", pluginId);
+      log.error("pluginKey = '{}'", pluginKey);
       log.error("auKey = '{}'", auKey);
       throw new DbException(message, sqle);
     } finally {
