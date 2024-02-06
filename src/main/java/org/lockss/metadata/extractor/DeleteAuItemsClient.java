@@ -39,12 +39,7 @@ import java.util.Base64;
 import org.lockss.config.CurrentConfig;
 import org.lockss.util.Logger;
 import org.lockss.util.rest.RestUtil;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.*;
 import org.springframework.web.client.RestTemplate;
 
 /**
@@ -103,8 +98,9 @@ public class DeleteAuItemsClient {
 	    HttpMethod.DELETE, new HttpEntity<String>(null, headers),
 	    Integer.class);
 
-    HttpStatus statusCode = response.getStatusCode();
-    if (log.isDebug3()) log.debug3(DEBUG_HEADER + "statusCode = " + statusCode);
+    HttpStatusCode statusCode = response.getStatusCode();
+    HttpStatus status = HttpStatus.valueOf(statusCode.value());
+    if (log.isDebug3()) log.debug3(DEBUG_HEADER + "status = " + status);
 
     Integer mdItemSeq = response.getBody();
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "mdItemSeq = " + mdItemSeq);
