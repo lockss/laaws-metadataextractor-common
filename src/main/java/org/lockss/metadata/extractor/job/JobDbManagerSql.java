@@ -38,6 +38,8 @@ import java.sql.SQLException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import javax.sql.DataSource;
+
+import org.lockss.db.DbManager;
 import org.lockss.db.DbManagerSql;
 import org.lockss.util.Logger;
 import org.lockss.util.StringUtil;
@@ -168,10 +170,10 @@ public class JobDbManagerSql extends DbManagerSql {
    * @param fetchSize
    *          An int with the SQL statement fetch size.
    */
-  JobDbManagerSql(DataSource dataSource, String dataSourceClassName,
-      String dataSourceUser, int maxRetryCount, long retryDelay, int fetchSize)
+  JobDbManagerSql(DbManager dbMgr, DataSource dataSource, String dataSourceClassName,
+                  String dataSourceUser, int maxRetryCount, long retryDelay, int fetchSize)
       {
-    super(dataSource, dataSourceClassName, dataSourceUser, maxRetryCount,
+    super(dbMgr, dataSource, dataSourceClassName, dataSourceUser, maxRetryCount,
 	retryDelay, fetchSize);
   }
 
