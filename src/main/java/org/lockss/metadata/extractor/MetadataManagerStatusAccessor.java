@@ -1,6 +1,6 @@
 /*
 
-Copyright (c) 2012-2019 Board of Trustees of Leland Stanford Jr. University,
+Copyright (c) 2000-2023 Board of Trustees of Leland Stanford Jr. University,
 all rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -39,6 +39,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
 import org.lockss.daemon.status.ColumnDescriptor;
 import org.lockss.daemon.status.StatusAccessor;
 import org.lockss.daemon.status.StatusService.NoSuchTableException;
@@ -97,7 +98,7 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
 
   final private List<ColumnDescriptor> colDescs =
       ListUtil.list(new ColumnDescriptor[] {
-        new ColumnDescriptor(AU_COL_NAME, "Journal Volume",
+        new ColumnDescriptor(AU_COL_NAME, "AU",
                              ColumnDescriptor.TYPE_STRING)
         .setComparator(CatalogueOrderComparator.SINGLETON),
         new ColumnDescriptor(INDEX_TYPE, "Index Type",
@@ -195,7 +196,7 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
     } else {
       // report information for specified task
       res.add(new StatusTable.SummaryInfo(
-          "Volume",
+          "AU",
           ColumnDescriptor.TYPE_STRING,
           task.getAuName()));
       PluginManager pluginMgr = mdxMgr.getApp().getPluginManager();
