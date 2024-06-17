@@ -2153,10 +2153,16 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    *           if any problem occurred accessing the database.
    */
   Collection<String> findDisabledPendingAus() throws DbException {
-    // Get a connection to the database.
-    Connection conn = dbManager.getConnection();
+    Connection conn = null;
 
-    return findDisabledPendingAus(conn);
+    try {
+      // Get a connection to the database.
+      conn = dbManager.getConnection();
+
+      return findDisabledPendingAus(conn);
+    } finally {
+      dbManager.safeRollbackAndClose(conn);
+    }
   }
 
   /**
@@ -2184,10 +2190,16 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    *           if any problem occurred accessing the database.
    */
   Collection<String> findFailedIndexingPendingAus() throws DbException {
-    // Get a connection to the database.
-    Connection conn = dbManager.getConnection();
+    Connection conn = null;
 
-    return findFailedIndexingPendingAus(conn);
+    try {
+      // Get a connection to the database.
+      conn = dbManager.getConnection();
+
+      return findFailedIndexingPendingAus(conn);
+    } finally {
+      dbManager.safeRollbackAndClose(conn);
+    }
   }
 
   /**
