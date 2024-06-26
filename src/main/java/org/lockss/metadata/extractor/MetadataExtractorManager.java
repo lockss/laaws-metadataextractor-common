@@ -990,6 +990,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 	                                           task.getAu())) {
 	  public void lockssRun() {
 	    startWDog(WDOG_PARAM_INDEXER, WDOG_DEFAULT_INDEXER);
+            triggerWDogOnExit(true);
 	    task.setWDog(this);
 
 	    task.handleEvent(Schedule.EventType.START);
@@ -1000,6 +1001,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 
 	    task.handleEvent(Schedule.EventType.FINISH);
 	    stopWDog();
+            triggerWDogOnExit(false);
 	  }
 	};
 
