@@ -170,38 +170,42 @@ public class MetadataIndexingStarter extends LockssRunnable {
 
     List<ArchivalUnit> toBeIndexed = new ArrayList<ArchivalUnit>();
 
-    // Loop through all the AUs to see which need to be on the pending queue.
-    for (ArchivalUnit au : pluginManager.getAllAus()) {
-      if (log.isDebug3())
-	log.debug3(DEBUG_HEADER + "Plugin AU = " + au.getName());
+    try {
+      // Loop through all the AUs to see which need to be on the pending queue.
+      for (ArchivalUnit au : pluginManager.getAllAus()) {
+        if (log.isDebug3())
+          log.debug3(DEBUG_HEADER + "Plugin AU = " + au.getName());
 
-      // Check whether the AU has not been crawled.
-      if (!AuUtil.hasCrawled(au)) {
-	// Yes: Do not index it.
-	if (log.isDebug3())
-	  log.debug3(DEBUG_HEADER + "AU has not been crawled: No indexing.");
-	continue;
-      } else {
-	// No: Check whether the plugin's md extractor version is newer
-	// than the version of the metadata already in the database or
-	// whether the AU metadata hasn't been extracted since the last
-	// successful crawl.
-	try {
-	  if (mdxManager.isAuMetadataForObsoletePlugin(conn, au)
-	      || mdxManager.isAuCrawledAndNotExtracted(conn, au)) {
-	    // Yes: index it.
-	    if (log.isDebug3())
-	      log.debug3(DEBUG_HEADER + "AU is to be indexed");
-	    toBeIndexed.add(au);
-	  } else {
-	    // No.
-	    if (log.isDebug3())
-	      log.debug3(DEBUG_HEADER + "AU does not need to be indexed");
-	  }
-	} catch (DbException dbe) {
-	  log.error("Cannot get AU metadata version: " + dbe);
-	}
+        // Check whether the AU has not been crawled.
+        if (!AuUtil.hasCrawled(au)) {
+          // Yes: Do not index it.
+          if (log.isDebug3())
+            log.debug3(DEBUG_HEADER + "AU has not been crawled: No indexing.");
+          continue;
+        } else {
+          // No: Check whether the plugin's md extractor version is newer
+          // than the version of the metadata already in the database or
+          // whether the AU metadata hasn't been extracted since the last
+          // successful crawl.
+          try {
+            if (mdxManager.isAuMetadataForObsoletePlugin(conn, au)
+                || mdxManager.isAuCrawledAndNotExtracted(conn, au)) {
+              // Yes: index it.
+              if (log.isDebug3())
+                log.debug3(DEBUG_HEADER + "AU is to be indexed");
+              toBeIndexed.add(au);
+            } else {
+              // No.
+              if (log.isDebug3())
+                log.debug3(DEBUG_HEADER + "AU does not need to be indexed");
+            }
+          } catch (DbException dbe) {
+            log.error("Cannot get AU metadata version: " + dbe);
+          }
+        }
       }
+    } finally {
+      dbManager.safeRollbackAndClose(conn);
     }
 
     log.debug2(DEBUG_HEADER + "Done examining AUs");
