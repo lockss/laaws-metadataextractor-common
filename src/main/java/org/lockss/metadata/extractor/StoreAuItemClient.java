@@ -39,12 +39,7 @@ import org.lockss.config.CurrentConfig;
 import org.lockss.metadata.ItemMetadata;
 import org.lockss.util.Logger;
 import org.lockss.util.rest.RestUtil;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.*;
 import org.springframework.web.client.RestTemplate;
 
 /**
@@ -102,8 +97,9 @@ public class StoreAuItemClient {
 	restTemplate.exchange(restServiceLocation + "/aus", HttpMethod.POST,
 	    new HttpEntity<ItemMetadata>(item, headers), Long.class);
 
-    HttpStatus statusCode = response.getStatusCode();
-    if (log.isDebug3()) log.debug3(DEBUG_HEADER + "statusCode = " + statusCode);
+    HttpStatusCode statusCode = response.getStatusCode();
+    HttpStatus status = HttpStatus.valueOf(statusCode.value());
+    if (log.isDebug3()) log.debug3(DEBUG_HEADER + "status = " + status);
 
     Long mdItemSeq = response.getBody();
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "mdItemSeq = " + mdItemSeq);

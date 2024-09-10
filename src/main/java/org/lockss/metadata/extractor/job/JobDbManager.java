@@ -162,7 +162,7 @@ public class JobDbManager extends DbManager implements ConfigurableManager {
       + "waitForExternalSetup";
 
   // The SQL code executor.
-  private JobDbManagerSql jobDbManagerSql = new JobDbManagerSql(null,
+  private JobDbManagerSql jobDbManagerSql = new JobDbManagerSql(this, null,
       DEFAULT_DATASOURCE_CLASSNAME, DEFAULT_DATASOURCE_USER,
       DEFAULT_MAX_RETRY_COUNT, DEFAULT_RETRY_DELAY, DEFAULT_FETCH_SIZE);
 
