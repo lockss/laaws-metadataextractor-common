@@ -34,4 +34,5 @@ dependencies {
     // Test dependencies
     testImplementation(platform(project(":lockss-pom-bundles:lockss-junit5-bundle")))
     testImplementation(libs.junit.jupiter.engine)
+    testImplementation(project(":lockss-core", configuration = "testArtifacts"))
 }
