@@ -1,5 +1,13 @@
 # `laaws-metadataextractor-common` Release Notes
 
+## 2.11.0 (LOCKSS 2.0.91-beta2)
+
+### Features
+
+* Refactored URI construction for improved encoding and expandability
+* Fix for broken test ordering
+
+
 ## Changes since 2.6.0
 
 * Remove  Travis CI
