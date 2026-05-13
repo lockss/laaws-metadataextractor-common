@@ -1426,6 +1426,14 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    *         database.
    */
   long getArticleCount() {
+    if (getConfigManager().inMigrationMode()) {
+      try {
+        return mdxManagerSql.getArticleCount();
+      } catch (DbException ex) {
+        log.error("getArticleCount", ex);
+        return 0;
+      }
+    }
     return metadataArticleCount;
   }
 
@@ -1435,7 +1443,8 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * @return the number of distinct publishers in the metadata database
    */
   long getPublisherCount() {
-    if (metadataPublisherCount < 0) {
+    if ((getConfigManager().inMigrationMode()) ||
+        metadataPublisherCount < 0) {
       try {
         metadataPublisherCount = mdxManagerSql.getPublisherCount();
       } catch (DbException ex) {
@@ -1451,11 +1460,12 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * @return the number of distinct providers in the metadata database
    */
   long getProviderCount() {
-    if (metadataProviderCount < 0) {
+    if ((getConfigManager().inMigrationMode()) ||
+        metadataProviderCount < 0) {
       try {
         metadataProviderCount = mdxManagerSql.getProviderCount();
       } catch (DbException ex) {
-	log.error("getProviderCount", ex);
+        log.error("getProviderCount", ex);
       }
     }
     return (metadataProviderCount < 0) ? 0 : metadataProviderCount;
