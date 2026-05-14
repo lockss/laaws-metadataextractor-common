@@ -802,7 +802,10 @@ public class ReindexingTask extends StepTask {
 
             // Get a connection to the database.
             conn = dbManager.getConnection();
-            mdxManagerSql.lockMetadataWrite(conn);
+
+            mdxManager.getMetadataManager()
+                .getMetadataManagerSql()
+                .lockMetadataWrite(conn);
 
             if (log.isDebug3())
               log.debug3(DEBUG_HEADER + "needFullReindex = " + needFullReindex);
