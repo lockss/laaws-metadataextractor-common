@@ -100,14 +100,27 @@ public class JobManagerSql {
   private static final String DELETE_JOB_QUERY = DELETE_ALL_JOBS_QUERY
       + " where " + JOB_SEQ_COLUMN + " = ?";
 
-  // Query to list FAILED job_seqs for an AU, oldest-first.
-  private static final String FIND_FAILED_JOB_SEQS_FOR_AU_QUERY = "select "
+  // Query to list job_seqs for an AU with a specific status, oldest-first.
+  // Used by pruneOldestJobsForAuByStatus to cap historical FAILED/SKIPPED
+  // rows per AU.
+  private static final String FIND_JOB_SEQS_FOR_AU_BY_STATUS_QUERY = "select "
       + JOB_SEQ_COLUMN
       + " from " + JOB_TABLE
       + " where " + PLUGIN_ID_COLUMN + " = ?"
       + " and " + AU_KEY_COLUMN + " = ?"
       + " and " + JOB_STATUS_SEQ_COLUMN + " = ?"
       + " order by " + JOB_SEQ_COLUMN;
+
+  // Query to count "prior attempt" job rows for an AU other than a specific
+  // job_seq. Used by isOnlyJobForAu to detect "first time the AU has been
+  // attempted." SKIPPED rows are excluded — being filtered out at dequeue
+  // does not constitute an attempt to extract metadata.
+  private static final String COUNT_OTHER_JOBS_FOR_AU_QUERY = "select count(*)"
+      + " from " + JOB_TABLE
+      + " where " + PLUGIN_ID_COLUMN + " = ?"
+      + " and " + AU_KEY_COLUMN + " = ?"
+      + " and " + JOB_SEQ_COLUMN + " != ?"
+      + " and " + JOB_STATUS_SEQ_COLUMN + " != ?";
 
   // Query to retrieve all the job statues.
   private static final String GET_JOB_STATUSES_QUERY = "select "
@@ -184,8 +197,10 @@ public class JobManagerSql {
 	+ " and " + JOB_STATUS_SEQ_COLUMN + " != ?";
 
   // Query to delete an inactive job. Excludes RUNNING/TERMINATING (still in
-  // flight) and FAILED (durable failure record).
+  // flight), FAILED (durable failure record), and SKIPPED (durable
+  // eligibility-rejection record).
   private static final String DELETE_INACTIVE_JOB_QUERY = DELETE_JOB_QUERY
+	+ " and " + JOB_STATUS_SEQ_COLUMN + " != ?"
 	+ " and " + JOB_STATUS_SEQ_COLUMN + " != ?"
 	+ " and " + JOB_STATUS_SEQ_COLUMN + " != ?"
 	+ " and " + JOB_STATUS_SEQ_COLUMN + " != ?";
@@ -208,6 +223,13 @@ public class JobManagerSql {
       + " where " + OWNER_COLUMN + " is null"
       + " order by " + PRIORITY_COLUMN
       + ", " + JOB_SEQ_COLUMN;
+
+  // Query to set the priority of an existing job. Used to bias new-AU jobs
+  // ahead of re-indexing jobs when prioritizeIndexingNewAus is enabled.
+  private static final String UPDATE_JOB_PRIORITY_QUERY = "update "
+      + JOB_TABLE
+      + " set " + PRIORITY_COLUMN + " = ?"
+      + " where " + JOB_SEQ_COLUMN + " = ?";
 
   // Query to claim an unclaimed job.
   private static final String CLAIM_UNCLAIMED_JOB_QUERY = "update "
@@ -261,9 +283,14 @@ public class JobManagerSql {
       + " where " + JOB_TYPE_SEQ_COLUMN + " != ?"
       + " and " + JOB_STATUS_SEQ_COLUMN + " = ?";
 
-  // Query to find the reindexing jobs with a given status and started before a
-  // given timestamp.
-  private static final String REINDEXING_JOBS_BEFORE_BY_STATUS_QUERY = "select "
+  // Common SELECT/WHERE prefix for queries that list reindexing jobs started
+  // before a given timestamp. Callers append their own status filter
+  // (= ? for a single status, in (?, ?, ...) for multiple) and an ORDER BY
+  // before preparing the statement. The two callers today are
+  // getFailedReindexingJobsBefore (FAILED only) and
+  // getFinishedReindexingJobsBefore (DONE + FAILED).
+  private static final String REINDEXING_JOBS_BEFORE_BY_STATUS_QUERY_PREFIX =
+        "select "
       + JOB_SEQ_COLUMN
       + ", " + JOB_TYPE_SEQ_COLUMN
       + ", " + PLUGIN_ID_COLUMN
@@ -271,10 +298,10 @@ public class JobManagerSql {
       + ", " + START_TIME_COLUMN
       + ", " + END_TIME_COLUMN
       + ", " + PRIORITY_COLUMN
+      + ", " + JOB_STATUS_SEQ_COLUMN
       + ", " + STATUS_MESSAGE_COLUMN
       + " from " + JOB_TABLE
       + " where " + JOB_TYPE_SEQ_COLUMN + " != ?"
-      + " and " + JOB_STATUS_SEQ_COLUMN + " = ?"
       + " and " + START_TIME_COLUMN + " < ?";
 
   // Query to update the job queue truncation timestamp.
@@ -507,12 +534,13 @@ public class JobManagerSql {
 
       Long jobStatusSeq = (long)job.getStatusCode();
 
-      // Skip historical-failure rows: they are kept as a durable failure
+      // Skip durable historical rows (FAILED, SKIPPED): they exist as a
       // record and must not be reused (would re-run no-op) or deleted (would
       // lose history).
-      if (jobStatusSeqByName.get(JOB_STATUS_FAILED).equals(jobStatusSeq)) {
+      if (jobStatusSeqByName.get(JOB_STATUS_FAILED).equals(jobStatusSeq)
+	  || jobStatusSeqByName.get(JOB_STATUS_SKIPPED).equals(jobStatusSeq)) {
 	if (log.isDebug3())
-	  log.debug3(DEBUG_HEADER + "Skipping historical failure: " + job);
+	  log.debug3(DEBUG_HEADER + "Skipping historical row: " + job);
 	continue;
       }
 
@@ -967,12 +995,6 @@ public class JobManagerSql {
 
       Long jobStatusSeq = (long)job.getStatusCode();
 
-      // Skip historical-failure rows; see createMetadataExtractionJob.
-      if (jobStatusSeqByName.get(JOB_STATUS_FAILED).equals(jobStatusSeq)) {
-	if (log.isDebug3())
-	  log.debug3(DEBUG_HEADER + "Skipping historical failure: " + job);
-	continue;
-      }
 
       // Check whether it's a job deleting the metadata of the Archival Unit.
       if (jobTypeSeqByName.get(JOB_TYPE_DELETE_AU).equals(jobTypeSeq)) {
@@ -1084,9 +1106,10 @@ public class JobManagerSql {
 	log.debug3(DEBUG_HEADER + "jobTypeSeq = " + jobTypeSeq);
 
       // Skip terminal rows: callers want the currently-active job, not
-      // historical records. JOB_STATUS_FAILED rows in particular accumulate.
+      // historical records. FAILED and SKIPPED rows in particular accumulate.
       Long jobStatusSeq = (long)job.getStatusCode();
       if (jobStatusSeqByName.get(JOB_STATUS_FAILED).equals(jobStatusSeq)
+	  || jobStatusSeqByName.get(JOB_STATUS_SKIPPED).equals(jobStatusSeq)
 	  || jobStatusSeqByName.get(JOB_STATUS_DONE).equals(jobStatusSeq)
 	  || jobStatusSeqByName.get(JOB_STATUS_TERMINATED).equals(jobStatusSeq)
 	  || jobStatusSeqByName.get(JOB_STATUS_DELETED).equals(jobStatusSeq)) {
@@ -1476,9 +1499,11 @@ public class JobManagerSql {
 
     try {
       deleteJob.setLong(1, jobSeq);
+      // TODO: This could be built into thw query
       deleteJob.setLong(2, jobStatusSeqByName.get(JOB_STATUS_RUNNING));
       deleteJob.setLong(3, jobStatusSeqByName.get(JOB_STATUS_TERMINATING));
       deleteJob.setLong(4, jobStatusSeqByName.get(JOB_STATUS_FAILED));
+      deleteJob.setLong(5, jobStatusSeqByName.get(JOB_STATUS_SKIPPED));
 
       deletedCount = dbManager.executeUpdate(deleteJob);
     } catch (SQLException sqle) {
@@ -2056,47 +2081,141 @@ public class JobManagerSql {
   }
 
   /**
-   * Prunes the oldest FAILED job rows for an AU so that at most
-   * {@code keepCount} remain. Call after marking a job FAILED.
+   * Marks a job as skipped (dequeue-time eligibility rejection). SKIPPED rows
+   * are preserved by the dedup loop and by DELETE_INACTIVE_JOB_QUERY so they
+   * remain as a record of the rejection.
    *
+   * @param conn          connection
+   * @param jobSeq        the job id
+   * @param statusMessage why the job was skipped
+   * @return the count of jobs updated.
+   */
+  int markJobAsSkipped(Connection conn, Long jobSeq, String statusMessage)
+      throws DbException {
+    return markJobAsFinished(conn, jobSeq, JOB_STATUS_SKIPPED, statusMessage);
+  }
+
+  /**
+   * Returns true iff {@code auId} has no prior-attempt rows in the job
+   * table other than the given {@code jobSeq}. SKIPPED rows are not counted
+   * as prior attempts (they record eligibility filtering, not work). Used
+   * by {@code MetadataExtractorManager.scheduleMetadataExtraction} to gate
+   * the new-AU priority bias to genuinely-first appearances.
+   */
+  boolean isOnlyJobForAu(Connection conn, String auId, Long jobSeq)
+      throws DbException {
+    final String DEBUG_HEADER = "isOnlyJobForAu(): ";
+
+    String pluginKey = PluginManager.pluginKeyFromAuId(auId);
+    String auKey = PluginManager.auKeyFromAuId(auId);
+
+    PreparedStatement stmt = null;
+    ResultSet results = null;
+    try {
+      stmt = dbManager.prepareStatement(conn, COUNT_OTHER_JOBS_FOR_AU_QUERY);
+      stmt.setString(1, pluginKey);
+      stmt.setString(2, auKey);
+      stmt.setLong(3, jobSeq);
+      stmt.setLong(4, jobStatusSeqByName.get(JOB_STATUS_SKIPPED));
+      results = dbManager.executeQuery(stmt);
+      results.next();
+      long otherCount = results.getLong(1);
+      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auId = '" + auId
+	  + "', jobSeq = " + jobSeq + ", otherCount = " + otherCount);
+      return otherCount == 0;
+    } catch (SQLException sqle) {
+      String message = "Cannot count other jobs for AU";
+      log.error(message, sqle);
+      log.error("auId = '" + auId + "', jobSeq = " + jobSeq);
+      log.error("SQL = '" + COUNT_OTHER_JOBS_FOR_AU_QUERY + "'.");
+      throw new DbException(message, sqle);
+    } finally {
+      JobDbManager.safeCloseResultSet(results);
+      JobDbManager.safeCloseStatement(stmt);
+    }
+  }
+
+  /**
+   * Sets the priority of an existing job row. Jobs are claimed in ascending
+   * priority order, so smaller values are dequeued first; the legacy
+   * "prioritize new AUs" semantics is restored by giving new-AU jobs a small
+   * negative priority.
+   *
+   * @return the count of jobs updated (0 if the job does not exist).
+   */
+  int setJobPriority(Connection conn, Long jobSeq, long priority)
+      throws DbException {
+    final String DEBUG_HEADER = "setJobPriority(): ";
+    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "jobSeq = " + jobSeq
+	+ ", priority = " + priority);
+
+    PreparedStatement updateStmt = null;
+    int updatedCount = -1;
+    try {
+      updateStmt = dbManager.prepareStatement(conn, UPDATE_JOB_PRIORITY_QUERY);
+      updateStmt.setLong(1, priority);
+      updateStmt.setLong(2, jobSeq);
+      updatedCount = dbManager.executeUpdate(updateStmt);
+    } catch (SQLException sqle) {
+      String message = "Cannot set job priority";
+      log.error(message, sqle);
+      log.error("jobSeq = " + jobSeq + ", priority = " + priority);
+      log.error("SQL = '" + UPDATE_JOB_PRIORITY_QUERY + "'.");
+      throw new DbException(message, sqle);
+    } finally {
+      JobDbManager.safeCloseStatement(updateStmt);
+    }
+
+    if (log.isDebug2())
+      log.debug2(DEBUG_HEADER + "updatedCount = " + updatedCount);
+    return updatedCount;
+  }
+
+  /**
+   * Prunes the oldest job rows for an AU with a specific status so that at
+   * most {@code keepCount} remain. Call after marking a new job with the same
+   * status; intended for the durable FAILED and SKIPPED histories.
+   *
+   * @param statusName the JOB_STATUS_* name to prune.
    * @return the number of rows deleted.
    */
-  int pruneOldestFailedJobsForAu(Connection conn, String auId, int keepCount)
-      throws DbException {
-    final String DEBUG_HEADER = "pruneOldestFailedJobsForAu(): ";
+  int pruneOldestJobsForAuByStatus(Connection conn, String auId,
+      String statusName, int keepCount) throws DbException {
+    final String DEBUG_HEADER = "pruneOldestJobsForAuByStatus(): ";
     if (keepCount < 0) keepCount = 0;
 
     String pluginKey = PluginManager.pluginKeyFromAuId(auId);
     String auKey = PluginManager.auKeyFromAuId(auId);
 
-    List<Long> failedSeqs = new ArrayList<Long>();
+    List<Long> matchingSeqs = new ArrayList<Long>();
     PreparedStatement findStmt = null;
     ResultSet results = null;
     try {
       findStmt = dbManager.prepareStatement(conn,
-	  FIND_FAILED_JOB_SEQS_FOR_AU_QUERY);
+	  FIND_JOB_SEQS_FOR_AU_BY_STATUS_QUERY);
       findStmt.setString(1, pluginKey);
       findStmt.setString(2, auKey);
-      findStmt.setLong(3, jobStatusSeqByName.get(JOB_STATUS_FAILED));
+      findStmt.setLong(3, jobStatusSeqByName.get(statusName));
       results = dbManager.executeQuery(findStmt);
       while (results.next()) {
-	failedSeqs.add(results.getLong(JOB_SEQ_COLUMN));
+	matchingSeqs.add(results.getLong(JOB_SEQ_COLUMN));
       }
     } catch (SQLException sqle) {
-      String message = "Cannot list FAILED jobs for AU";
+      String message = "Cannot list jobs for AU by status";
       log.error(message, sqle);
-      log.error("auId = '" + auId + "'.");
-      log.error("SQL = '" + FIND_FAILED_JOB_SEQS_FOR_AU_QUERY + "'.");
+      log.error("auId = '" + auId + "', statusName = '" + statusName + "'.");
+      log.error("SQL = '" + FIND_JOB_SEQS_FOR_AU_BY_STATUS_QUERY + "'.");
       throw new DbException(message, sqle);
     } finally {
       JobDbManager.safeCloseResultSet(results);
       JobDbManager.safeCloseStatement(findStmt);
     }
 
-    int toDelete = failedSeqs.size() - keepCount;
+    int toDelete = matchingSeqs.size() - keepCount;
     if (toDelete <= 0) {
-      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "no prune needed; failed="
-	  + failedSeqs.size() + ", keep=" + keepCount);
+      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "no prune needed; status="
+	  + statusName + ", found=" + matchingSeqs.size()
+	  + ", keep=" + keepCount);
       return 0;
     }
 
@@ -2105,13 +2224,13 @@ public class JobManagerSql {
     try {
       deleteStmt = dbManager.prepareStatement(conn, DELETE_JOB_QUERY);
       for (int i = 0; i < toDelete; i++) {
-	deleteStmt.setLong(1, failedSeqs.get(i));
+	deleteStmt.setLong(1, matchingSeqs.get(i));
 	deleted += dbManager.executeUpdate(deleteStmt);
       }
     } catch (SQLException sqle) {
-      String message = "Cannot prune FAILED jobs for AU";
+      String message = "Cannot prune jobs for AU by status";
       log.error(message, sqle);
-      log.error("auId = '" + auId + "'.");
+      log.error("auId = '" + auId + "', statusName = '" + statusName + "'.");
       log.error("SQL = '" + DELETE_JOB_QUERY + "'.");
       throw new DbException(message, sqle);
     } finally {
@@ -2119,7 +2238,8 @@ public class JobManagerSql {
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "pruned " + deleted
-	+ " FAILED rows for auId = '" + auId + "', keepCount = " + keepCount);
+	+ " " + statusName + " rows for auId = '" + auId
+	+ "', keepCount = " + keepCount);
     return deleted;
   }
 
@@ -2578,7 +2698,10 @@ public class JobManagerSql {
     PreparedStatement stmt = null;
     ResultSet resultSet = null;
 
-    String sql = REINDEXING_JOBS_BEFORE_BY_STATUS_QUERY
+    // "Finished" spans the success/failure outcomes. SKIPPED rows are
+    // excluded — they record eligibility filtering, not an attempt to run.
+    String sql = REINDEXING_JOBS_BEFORE_BY_STATUS_QUERY_PREFIX
+	+ " and " + JOB_STATUS_SEQ_COLUMN + " in (?, ?)"
 	+ " order by " + START_TIME_COLUMN + " desc";
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "sql = " + sql);
 
@@ -2589,8 +2712,9 @@ public class JobManagerSql {
       // Prepare the query.
       stmt = dbManager.prepareStatement(conn, sql);
       stmt.setLong(1, jobTypeSeqByName.get(JOB_TYPE_DELETE_AU));
-      stmt.setLong(2, jobStatusSeqByName.get(JOB_STATUS_DONE));
-      stmt.setLong(3, beforeTime);
+      stmt.setLong(2, beforeTime);
+      stmt.setLong(3, jobStatusSeqByName.get(JOB_STATUS_DONE));
+      stmt.setLong(4, jobStatusSeqByName.get(JOB_STATUS_FAILED));
       stmt.setMaxRows(maxJobCount);
 
       // Make the query.
@@ -2683,8 +2807,8 @@ public class JobManagerSql {
     PreparedStatement stmt = null;
     ResultSet resultSet = null;
 
-    String sql = REINDEXING_JOBS_BEFORE_BY_STATUS_QUERY
-	+ " and " + STATUS_MESSAGE_COLUMN + " != ?"
+    String sql = REINDEXING_JOBS_BEFORE_BY_STATUS_QUERY_PREFIX
+	+ " and " + JOB_STATUS_SEQ_COLUMN + " = ?"
 	+ " order by " + START_TIME_COLUMN + " desc";
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "sql = " + sql);
 
@@ -2695,9 +2819,8 @@ public class JobManagerSql {
       // Prepare the query.
       stmt = dbManager.prepareStatement(conn, sql);
       stmt.setLong(1, jobTypeSeqByName.get(JOB_TYPE_DELETE_AU));
-      stmt.setLong(2, jobStatusSeqByName.get(JOB_STATUS_DONE));
-      stmt.setLong(3, beforeTime);
-      stmt.setString(4, "Success");
+      stmt.setLong(2, beforeTime);
+      stmt.setLong(3, jobStatusSeqByName.get(JOB_STATUS_FAILED));
       stmt.setMaxRows(maxJobCount);
 
       // Make the query.

@@ -566,7 +566,7 @@ public class JobManager extends BaseLockssDaemonManager implements
 	  markedJobs = markJobAsDone(conn, jobSeq, "Success");
 	} else {
 	  markedJobs = markJobAsFailed(conn, jobSeq, "Failure: " + exception);
-	  pruneOldestFailedJobsForAu(conn, auId,
+	  pruneOldestJobsForAuByStatus(conn, auId, JOB_STATUS_FAILED,
 	      mdxManager.getMaxFailedJobRowsPerAu());
 	}
 
@@ -685,7 +685,7 @@ public class JobManager extends BaseLockssDaemonManager implements
 	  markedJobs = markJobAsDone(conn, jobSeq, "Success");
 	} else {
 	  markedJobs = markJobAsFailed(conn, jobSeq, "Failure: " + exception);
-	  pruneOldestFailedJobsForAu(conn, auId,
+	  pruneOldestJobsForAuByStatus(conn, auId, JOB_STATUS_FAILED,
 	      mdxManager.getMaxFailedJobRowsPerAu());
 	}
 
@@ -804,12 +804,64 @@ public class JobManager extends BaseLockssDaemonManager implements
   }
 
   /**
-   * Prunes the oldest FAILED job rows for an AU so that no more than
-   * {@code keepCount} remain.
+   * Marks a job as skipped; the row is preserved as a record of the
+   * dequeue-time eligibility rejection.
    */
-  int pruneOldestFailedJobsForAu(Connection conn, String auId, int keepCount)
+  int markJobAsSkipped(Connection conn, Long jobSeq, String statusMessage)
       throws DbException {
-    return jobManagerSql.pruneOldestFailedJobsForAu(conn, auId, keepCount);
+    return jobManagerSql.markJobAsSkipped(conn, jobSeq, statusMessage);
+  }
+
+  /**
+   * Job priority assigned to extractions of "new" (never-yet-indexed) AUs
+   * when {@code prioritizeIndexingNewAus} is enabled. Jobs are claimed in
+   * ascending priority order, so this value sorts ahead of the FIFO range
+   * produced by {@code INSERT_JOB_QUERY} (max(priority) + 1).
+   */
+  public static final long NEW_AU_JOB_PRIORITY = -1L;
+
+  /**
+   * Returns true iff the given {@code jobSeq} is the only job row for
+   * {@code auId}. Opens its own connection.
+   */
+  public boolean isOnlyJobForAu(String auId, Long jobSeq) throws DbException {
+    Connection conn = null;
+    try {
+      conn = dbManager.getConnection();
+      return jobManagerSql.isOnlyJobForAu(conn, auId, jobSeq);
+    } finally {
+      JobDbManager.safeRollbackAndClose(conn);
+    }
+  }
+
+  /**
+   * Bias a job ahead of normal-priority jobs by setting its priority to
+   * {@link #NEW_AU_JOB_PRIORITY}. Opens and commits its own connection so
+   * callers can invoke this after {@link #scheduleMetadataExtraction(String,
+   * boolean)} returns.
+   */
+  public int setNewAuPriority(Long jobSeq) throws DbException {
+    Connection conn = null;
+    try {
+      conn = dbManager.getConnection();
+      int updated =
+	  jobManagerSql.setJobPriority(conn, jobSeq, NEW_AU_JOB_PRIORITY);
+      JobDbManager.commitOrRollback(conn, log);
+      return updated;
+    } finally {
+      JobDbManager.safeRollbackAndClose(conn);
+    }
+  }
+
+  /**
+   * Prunes the oldest job rows for an AU with the given status so that no
+   * more than {@code keepCount} remain. Used to cap durable FAILED and
+   * SKIPPED histories per AU.
+   */
+  int pruneOldestJobsForAuByStatus(Connection conn, String auId,
+      String statusName, int keepCount) throws DbException {
+    return jobManagerSql.pruneOldestJobsForAuByStatus(conn, auId, statusName,
+	keepCount);
   }
 
   /**

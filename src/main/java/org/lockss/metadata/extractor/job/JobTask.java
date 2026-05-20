@@ -236,7 +236,10 @@ public class JobTask implements Runnable {
     if (!mdxManager.isEligibleForReindexing(auId)) {
       log.info("Skipping ineligible AU '" + auId + "' (jobSeq = " + jobSeq
 	  + "): not in index priority map");
-      jobManager.markJobAsDone(conn, jobSeq, "Skipped: AU not eligible");
+      jobManager.markJobAsSkipped(conn, jobSeq,
+	  "Skipped: AU not eligible per index priority map");
+      jobManager.pruneOldestJobsForAuByStatus(conn, auId, JOB_STATUS_SKIPPED,
+	  mdxManager.getMaxFailedJobRowsPerAu());
       JobDbManager.commitOrRollback(conn, log);
       return;
     }

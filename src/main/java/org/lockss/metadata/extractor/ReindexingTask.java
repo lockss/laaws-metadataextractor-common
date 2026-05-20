@@ -830,8 +830,9 @@ public class ReindexingTask extends StepTask {
               .recordMetadataExtraction(conn, creationTime);
             }
 
-            // Remove the AU just re-indexed from the list of AUs pending to be
-            // re-indexed.
+            // TODO(pending_au-removal): remove these two lines (drain the
+            // v1.x-inserted pending_au row + refresh the count) with the
+            // pending_au table. The surrounding success path stays.
             mdxManagerSql.removeFromPendingAus(conn, auId);
             mdxManager.updatePendingAusCount(conn);
 
