@@ -231,6 +231,16 @@ public class JobTask implements Runnable {
     String auId = jobManager.getJobAuId(conn, jobSeq);
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auId = " + auId);
 
+    // Eligibility is checked at dequeue (rather than enqueue) so that runtime
+    // changes to the index-priority map take effect on already-queued jobs.
+    if (!mdxManager.isEligibleForReindexing(auId)) {
+      log.info("Skipping ineligible AU '" + auId + "' (jobSeq = " + jobSeq
+	  + "): not in index priority map");
+      jobManager.markJobAsDone(conn, jobSeq, "Skipped: AU not eligible");
+      JobDbManager.commitOrRollback(conn, log);
+      return;
+    }
+
     // Extract the metadata.
     stepTask = mdxManager.onDemandStartReindexing(auId, needFullReindex);
 

@@ -87,35 +87,6 @@ public class MetadataExtractorManagerSql {
     + " and " + AU_MD_TABLE + "." + AU_MD_SEQ_COLUMN
     + "=" + MD_ITEM_TABLE + "." + AU_MD_SEQ_COLUMN;
   
-  // Query to find enabled pending AUs sorted by priority. Subsitute "true"
-  // to prioritize indexing new AUs ahead of reindexing existing ones, "false"
-  // to index in the order they were added to the queue. AUs with a priority of
-  // zero (requested from the Debug Panel) are always sorted first.
-  private static final String FIND_PRIORITIZED_ENABLED_PENDING_AUS_QUERY =
-        "select "
-      +       PENDING_AU_TABLE + "." + PLUGIN_ID_COLUMN
-      + "," + PENDING_AU_TABLE + "." + AU_KEY_COLUMN
-      + "," + PENDING_AU_TABLE + "." + PRIORITY_COLUMN
-      + ",(" + AU_MD_TABLE + "." + AU_SEQ_COLUMN + " is null) as "
-      + ISNEW_COLUMN
-      + "," + PENDING_AU_TABLE + "." + FULLY_REINDEX_COLUMN
-      + " from " + PENDING_AU_TABLE
-      + "   left join " + PLUGIN_TABLE
-      + "     on " + PLUGIN_TABLE + "." + PLUGIN_ID_COLUMN
-      + "        = " + PENDING_AU_TABLE + "." + PLUGIN_ID_COLUMN
-      + "   left join " + AU_TABLE
-      + "     on " + AU_TABLE + "." + AU_KEY_COLUMN
-      + "        = " + PENDING_AU_TABLE + "." + AU_KEY_COLUMN
-      + "    and " + AU_TABLE + "." + PLUGIN_SEQ_COLUMN
-      + "        = " + PLUGIN_TABLE + "." + PLUGIN_SEQ_COLUMN
-      + "   left join " + AU_MD_TABLE
-      + "     on " + AU_MD_TABLE + "." + AU_SEQ_COLUMN
-      + "        = " + AU_TABLE + "." + AU_SEQ_COLUMN
-      + " where " + PRIORITY_COLUMN + " >= 0"
-      + " order by (" + PENDING_AU_TABLE + "." + PRIORITY_COLUMN + " > 0),"
-      + "(true = ? and " + AU_MD_TABLE + "." + AU_SEQ_COLUMN + " is not null)," 
-      + PENDING_AU_TABLE + "." + PRIORITY_COLUMN;
-
   // Query to delete a pending AU by its key and plugin identifier.
   private static final String DELETE_PENDING_AU_QUERY = "delete from "
       + PENDING_AU_TABLE
@@ -609,94 +580,6 @@ public class MetadataExtractorManagerSql {
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "rowCount = " + rowCount);
     return rowCount;
-  }
-
-  /**
-   * Provides a list of AuIds that require reindexing sorted by priority.
-   * 
-   * @param conn
-   *          A Connection with the database connection to be used.
-   * @param maxAuIds
-   *          An int with the maximum number of AuIds to return.
-   * @param prioritizeIndexingNewAus
-   *          A boolean with the indication of whether to prioritize new
-   *          Archival Units for indexing purposes.
-   * @return a List<String> with the list of AuIds that require reindexing
-   *         sorted by priority.
-   */
-  List<PrioritizedAuId> getPrioritizedAuIdsToReindex(Connection conn,
-      int maxAuIds, boolean prioritizeIndexingNewAus) {
-    final String DEBUG_HEADER = "getPrioritizedAuIdsToReindex(): ";
-    if (log.isDebug2()) {
-      log.debug2(DEBUG_HEADER + "maxAuIds = " + maxAuIds);
-      log.debug2(DEBUG_HEADER + "prioritizeIndexingNewAus = "
-	  + prioritizeIndexingNewAus);
-    }
-
-    ArrayList<PrioritizedAuId> auIds = new ArrayList<PrioritizedAuId>();
-
-    PreparedStatement selectPendingAus = null;
-    ResultSet results = null;
-    String sql = FIND_PRIORITIZED_ENABLED_PENDING_AUS_QUERY;
-      
-    try {
-      selectPendingAus = dbManager.prepareStatement(conn, sql);
-      selectPendingAus.setBoolean(1, prioritizeIndexingNewAus);
-      results = dbManager.executeQuery(selectPendingAus);
-
-      while ((auIds.size() < maxAuIds) && results.next()) {
-	String pluginId = results.getString(PLUGIN_ID_COLUMN);
-	if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginId = " + pluginId);
-	String auKey = results.getString(AU_KEY_COLUMN);
-	if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auKey = " + auKey);
-	String auId = PluginManager.generateAuId(pluginId, auKey);
-	if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auId = " + auId);
-
-	if (mdxManager.isEligibleForReindexing(auId)) {
-	  if (!mdxManager.activeReindexingTasks.containsKey(auId)) {
-	    PrioritizedAuId auToReindex = new PrioritizedAuId();
-	    auToReindex.auId = auId;
-
-	    long priority = results.getLong(PRIORITY_COLUMN);
-	    if (log.isDebug3())
-	      log.debug3(DEBUG_HEADER + "priority = " + priority);
-	    auToReindex.priority = priority;
-
-	    boolean isNew = results.getBoolean(ISNEW_COLUMN);
-	    if (log.isDebug3()) log.debug3(DEBUG_HEADER + "isNew = " + isNew);
-	    auToReindex.isNew = isNew;
-
-	    boolean needFullReindex = results.getBoolean(FULLY_REINDEX_COLUMN);
-	    if (log.isDebug3())
-	      log.debug3(DEBUG_HEADER + "needFullReindex = " + needFullReindex);
-	    auToReindex.needFullReindex = needFullReindex;
-
-	    auIds.add(auToReindex);
-	    if (log.isDebug3()) log.debug3(DEBUG_HEADER + "Added auId = " + auId
-		+ " to reindex list");
-	  }
-	}
-      }
-    } catch (SQLException sqle) {
-      String message = "Cannot identify the enabled pending AUs";
-      log.error(message, sqle);
-      log.error("maxAuIds = " + maxAuIds);
-      log.error("SQL = '" + sql + "'.");
-      log.error("prioritizeIndexingNewAus = " + prioritizeIndexingNewAus);
-    } catch (DbException dbe) {
-      String message = "Cannot identify the enabled pending AUs";
-      log.error(message, dbe);
-      log.error("SQL = '" + sql + "'.");
-      log.error("prioritizeIndexingNewAus = " + prioritizeIndexingNewAus);
-    } finally {
-      DbManager.safeCloseResultSet(results);
-      DbManager.safeCloseStatement(selectPendingAus);
-    }
-
-    auIds.trimToSize();
-    if (log.isDebug2())
-      log.debug2(DEBUG_HEADER + "auIds.size() = " + auIds.size());
-    return auIds;
   }
 
   /**

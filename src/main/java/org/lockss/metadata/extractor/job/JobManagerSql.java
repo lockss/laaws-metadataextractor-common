@@ -100,6 +100,15 @@ public class JobManagerSql {
   private static final String DELETE_JOB_QUERY = DELETE_ALL_JOBS_QUERY
       + " where " + JOB_SEQ_COLUMN + " = ?";
 
+  // Query to list FAILED job_seqs for an AU, oldest-first.
+  private static final String FIND_FAILED_JOB_SEQS_FOR_AU_QUERY = "select "
+      + JOB_SEQ_COLUMN
+      + " from " + JOB_TABLE
+      + " where " + PLUGIN_ID_COLUMN + " = ?"
+      + " and " + AU_KEY_COLUMN + " = ?"
+      + " and " + JOB_STATUS_SEQ_COLUMN + " = ?"
+      + " order by " + JOB_SEQ_COLUMN;
+
   // Query to retrieve all the job statues.
   private static final String GET_JOB_STATUSES_QUERY = "select "
       + JOB_STATUS_SEQ_COLUMN
@@ -174,8 +183,10 @@ public class JobManagerSql {
 	+ " where " + JOB_STATUS_SEQ_COLUMN + " != ?"
 	+ " and " + JOB_STATUS_SEQ_COLUMN + " != ?";
 
-  // Query to delete an inactive job.
+  // Query to delete an inactive job. Excludes RUNNING/TERMINATING (still in
+  // flight) and FAILED (durable failure record).
   private static final String DELETE_INACTIVE_JOB_QUERY = DELETE_JOB_QUERY
+	+ " and " + JOB_STATUS_SEQ_COLUMN + " != ?"
 	+ " and " + JOB_STATUS_SEQ_COLUMN + " != ?"
 	+ " and " + JOB_STATUS_SEQ_COLUMN + " != ?";
 
@@ -494,15 +505,23 @@ public class JobManagerSql {
       if (log.isDebug3())
 	log.debug3(DEBUG_HEADER + "jobTypeSeq = " + jobTypeSeq);
 
+      Long jobStatusSeq = (long)job.getStatusCode();
+
+      // Skip historical-failure rows: they are kept as a durable failure
+      // record and must not be reused (would re-run no-op) or deleted (would
+      // lose history).
+      if (jobStatusSeqByName.get(JOB_STATUS_FAILED).equals(jobStatusSeq)) {
+	if (log.isDebug3())
+	  log.debug3(DEBUG_HEADER + "Skipping historical failure: " + job);
+	continue;
+      }
+
       // Check whether it's a job extracting the metadata of the Archival Unit
       // and it is of the same type.
       if ((jobTypeSeqByName.get(JOB_TYPE_PUT_AU).equals(jobTypeSeq)
 	  && needFullReindex) ||
 	  (jobTypeSeqByName.get(JOB_TYPE_PUT_INCREMENTAL_AU).equals(jobTypeSeq)
 	      && !needFullReindex)) {
-	// Yes: Get its status.
-	Long jobStatusSeq = (long)job.getStatusCode();
-
 	// Check whether it has not been started.
 	if (jobStatusSeqByName.get(JOB_STATUS_CREATED).equals(jobStatusSeq)) {
 	  // Yes: Do not create a new job: Reuse the existing one.
@@ -946,11 +965,17 @@ public class JobManagerSql {
       if (log.isDebug3())
 	log.debug3(DEBUG_HEADER + "jobTypeSeq = " + jobTypeSeq);
 
+      Long jobStatusSeq = (long)job.getStatusCode();
+
+      // Skip historical-failure rows; see createMetadataExtractionJob.
+      if (jobStatusSeqByName.get(JOB_STATUS_FAILED).equals(jobStatusSeq)) {
+	if (log.isDebug3())
+	  log.debug3(DEBUG_HEADER + "Skipping historical failure: " + job);
+	continue;
+      }
+
       // Check whether it's a job deleting the metadata of the Archival Unit.
       if (jobTypeSeqByName.get(JOB_TYPE_DELETE_AU).equals(jobTypeSeq)) {
-	// Yes: Get its status.
-	Long jobStatusSeq = (long)job.getStatusCode();
-
 	// Check whether it has not been started.
 	if (jobStatusSeqByName.get(JOB_STATUS_CREATED).equals(jobStatusSeq)) {
 	  // Yes: Do not create a new job: Reuse the existing one.
@@ -1057,6 +1082,16 @@ public class JobManagerSql {
       Long jobTypeSeq = job.getType();
       if (log.isDebug3())
 	log.debug3(DEBUG_HEADER + "jobTypeSeq = " + jobTypeSeq);
+
+      // Skip terminal rows: callers want the currently-active job, not
+      // historical records. JOB_STATUS_FAILED rows in particular accumulate.
+      Long jobStatusSeq = (long)job.getStatusCode();
+      if (jobStatusSeqByName.get(JOB_STATUS_FAILED).equals(jobStatusSeq)
+	  || jobStatusSeqByName.get(JOB_STATUS_DONE).equals(jobStatusSeq)
+	  || jobStatusSeqByName.get(JOB_STATUS_TERMINATED).equals(jobStatusSeq)
+	  || jobStatusSeqByName.get(JOB_STATUS_DELETED).equals(jobStatusSeq)) {
+	continue;
+      }
 
       // Check whether it's a job extracting the metadata of the Archival Unit.
       if (jobTypeSeqByName.get(JOB_TYPE_PUT_AU).equals(jobTypeSeq)
@@ -1443,6 +1478,7 @@ public class JobManagerSql {
       deleteJob.setLong(1, jobSeq);
       deleteJob.setLong(2, jobStatusSeqByName.get(JOB_STATUS_RUNNING));
       deleteJob.setLong(3, jobStatusSeqByName.get(JOB_STATUS_TERMINATING));
+      deleteJob.setLong(4, jobStatusSeqByName.get(JOB_STATUS_FAILED));
 
       deletedCount = dbManager.executeUpdate(deleteJob);
     } catch (SQLException sqle) {
@@ -2001,6 +2037,93 @@ public class JobManagerSql {
   }
 
   /**
+   * Marks a job as failed. Unlike DONE rows, FAILED rows are preserved by the
+   * dedup loop so they remain as a durable failure record.
+   *
+   * @param conn
+   *          A Connection with the database connection to be used.
+   * @param jobSeq
+   *          A Long with the database identifier of the job.
+   * @param statusMessage
+   *          A String with the status message.
+   * @return an int with the count of jobs updated.
+   * @throws DbException
+   *           if any problem occurred accessing the database.
+   */
+  int markJobAsFailed(Connection conn, Long jobSeq, String statusMessage)
+      throws DbException {
+    return markJobAsFinished(conn, jobSeq, JOB_STATUS_FAILED, statusMessage);
+  }
+
+  /**
+   * Prunes the oldest FAILED job rows for an AU so that at most
+   * {@code keepCount} remain. Call after marking a job FAILED.
+   *
+   * @return the number of rows deleted.
+   */
+  int pruneOldestFailedJobsForAu(Connection conn, String auId, int keepCount)
+      throws DbException {
+    final String DEBUG_HEADER = "pruneOldestFailedJobsForAu(): ";
+    if (keepCount < 0) keepCount = 0;
+
+    String pluginKey = PluginManager.pluginKeyFromAuId(auId);
+    String auKey = PluginManager.auKeyFromAuId(auId);
+
+    List<Long> failedSeqs = new ArrayList<Long>();
+    PreparedStatement findStmt = null;
+    ResultSet results = null;
+    try {
+      findStmt = dbManager.prepareStatement(conn,
+	  FIND_FAILED_JOB_SEQS_FOR_AU_QUERY);
+      findStmt.setString(1, pluginKey);
+      findStmt.setString(2, auKey);
+      findStmt.setLong(3, jobStatusSeqByName.get(JOB_STATUS_FAILED));
+      results = dbManager.executeQuery(findStmt);
+      while (results.next()) {
+	failedSeqs.add(results.getLong(JOB_SEQ_COLUMN));
+      }
+    } catch (SQLException sqle) {
+      String message = "Cannot list FAILED jobs for AU";
+      log.error(message, sqle);
+      log.error("auId = '" + auId + "'.");
+      log.error("SQL = '" + FIND_FAILED_JOB_SEQS_FOR_AU_QUERY + "'.");
+      throw new DbException(message, sqle);
+    } finally {
+      JobDbManager.safeCloseResultSet(results);
+      JobDbManager.safeCloseStatement(findStmt);
+    }
+
+    int toDelete = failedSeqs.size() - keepCount;
+    if (toDelete <= 0) {
+      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "no prune needed; failed="
+	  + failedSeqs.size() + ", keep=" + keepCount);
+      return 0;
+    }
+
+    int deleted = 0;
+    PreparedStatement deleteStmt = null;
+    try {
+      deleteStmt = dbManager.prepareStatement(conn, DELETE_JOB_QUERY);
+      for (int i = 0; i < toDelete; i++) {
+	deleteStmt.setLong(1, failedSeqs.get(i));
+	deleted += dbManager.executeUpdate(deleteStmt);
+      }
+    } catch (SQLException sqle) {
+      String message = "Cannot prune FAILED jobs for AU";
+      log.error(message, sqle);
+      log.error("auId = '" + auId + "'.");
+      log.error("SQL = '" + DELETE_JOB_QUERY + "'.");
+      throw new DbException(message, sqle);
+    } finally {
+      JobDbManager.safeCloseStatement(deleteStmt);
+    }
+
+    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "pruned " + deleted
+	+ " FAILED rows for auId = '" + auId + "', keepCount = " + keepCount);
+    return deleted;
+  }
+
+  /**
    * Provides the identifier of the Archival Unit of a job.
    * 
    * @param conn
@@ -2425,8 +2548,7 @@ public class JobManagerSql {
    *           if any problem occurred accessing the database.
    */
   long getFailedReindexingJobsCount() throws DbException {
-    return getReindexingJobsWithStatusCount(JOB_STATUS_DONE)
-	- getSuccessfulReindexingJobsCount();
+    return getReindexingJobsWithStatusCount(JOB_STATUS_FAILED);
   }
 
   /**
