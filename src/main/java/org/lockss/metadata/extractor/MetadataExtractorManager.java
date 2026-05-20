@@ -896,14 +896,30 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * Provides an indication of whether an Archival Unit is eligible for
    * reindexing.
    *
+   * <p>Returns false if either:
+   * <ul>
+   *   <li>the AU is excluded by the {@code indexPriorityAuidMap}
+   *       (a {@code priority < 0} match), or</li>
+   *   <li>the AU's {@link AuStateBean#isMetadataExtractionEnabled()} is
+   *       false (e.g. an operator disabled extraction for this AU via the
+   *       debug panel).</li>
+   * </ul>
+   *
    * @param auId
    *          A String with the Archival Unit identifier.
    * @return a boolean with <code>true</code> if the Archival Unit is eligible
    *         for reindexing, <code>false</code> otherwise.
    */
   public boolean isEligibleForReindexing(String auId) {
-    return indexPriorityAuidMap == null
-      || indexPriorityAuidMap.getMatch(auId, 0) >= 0;
+    if (indexPriorityAuidMap != null &&
+        indexPriorityAuidMap.getMatch(auId, 0) < 0) {
+      return false;
+    }
+    AuStateBean auStateBean = stateManager.getAuStateBean(auId);
+    if (auStateBean != null && !auStateBean.isMetadataExtractionEnabled()) {
+      return false;
+    }
+    return true;
   }
 
   /**
