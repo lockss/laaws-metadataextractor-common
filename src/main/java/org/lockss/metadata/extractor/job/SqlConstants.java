@@ -138,6 +138,7 @@ public class SqlConstants {
   public static final String JOB_STATUS_DONE = "done";
   public static final String JOB_STATUS_FAILED = "failed";
   public static final String JOB_STATUS_RUNNING = "running";
+  public static final String JOB_STATUS_SKIPPED = "skipped";
   public static final String JOB_STATUS_TERMINATED = "terminated";
   public static final String JOB_STATUS_TERMINATING = "terminating";
 }

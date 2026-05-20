@@ -366,11 +366,16 @@ public class JobDbManagerSql extends DbManagerSql {
   /**
    * Updates the database from version 3 to version 4.
    *
-   * Adds the JOB_STATUS_FAILED status so that failed metadata-extraction jobs
-   * can be distinguished from successfully completed ones (which both used to
-   * share JOB_STATUS_DONE) and so that the dedup loop in
-   * createMetadataExtractionJob can leave them untouched as a durable failure
-   * record.
+   * Adds two new job statuses:
+   * <ul>
+   *   <li>JOB_STATUS_FAILED — failed metadata-extraction jobs, distinct
+   *       from successful (DONE) ones (both used to share JOB_STATUS_DONE).
+   *       Preserved by the dedup loop so they remain a durable failure
+   *       record.</li>
+   *   <li>JOB_STATUS_SKIPPED — dequeue-time eligibility rejections,
+   *       distinct from FAILED. Recorded so the operator can see which AUs
+   *       were filtered out by the index priority map.</li>
+   * </ul>
    *
    * @param conn
    *          A Connection with the database connection to be used.
@@ -385,6 +390,7 @@ public class JobDbManagerSql extends DbManagerSql {
     }
 
     addJobStatus(conn, JOB_STATUS_FAILED);
+    addJobStatus(conn, JOB_STATUS_SKIPPED);
 
     log.debug2("Done");
   }
