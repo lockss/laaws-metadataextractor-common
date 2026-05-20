@@ -550,21 +550,32 @@ public class JobManager extends BaseLockssDaemonManager implements
       if (log.isDebug3())
 	log.debug3(DEBUG_HEADER + "jobAuStatus = " + jobAuStatus);
 
+      boolean needFullReindex = false;
+
       if (jobAuStatus != null) {
 	Long jobSeq = Long.valueOf(jobAuStatus.getId());
 	if (log.isDebug3()) log.debug3(DEBUG_HEADER + "jobSeq = " + jobSeq);
+
+	// Capture the job type before marking it Done so we can schedule the
+	// retry, if any, as the same kind of job.
+	needFullReindex = isFullReindexJob(jobAuStatus.getType());
 
 	int markedJobs = -1;
 
 	if (status == ReindexingStatus.Success) {
 	  markedJobs = markJobAsDone(conn, jobSeq, "Success");
 	} else {
-	  markedJobs = markJobAsDone(conn, jobSeq, "Failure: " + exception);
+	  markedJobs = markJobAsFailed(conn, jobSeq, "Failure: " + exception);
+	  pruneOldestFailedJobsForAu(conn, auId,
+	      mdxManager.getMaxFailedJobRowsPerAu());
 	}
 
 	if (log.isDebug3())
 	  log.debug3(DEBUG_HEADER + "markedJobs = " + markedJobs);
 
+	// Commit the terminal state before enqueuing any retry:
+	// createMetadataExtractionJob skips FAILED rows during dedup, but the
+	// commit must happen here so retries take effect promptly.
 	JobDbManager.commitOrRollback(conn, log);
       }
 
@@ -576,13 +587,19 @@ public class JobManager extends BaseLockssDaemonManager implements
 	StepTask stepTask = jobTask.getStepTask();
 	if (log.isDebug3()) log.debug3(DEBUG_HEADER + "stepTask = " + stepTask);
 
-	// Check whether this is the task linked to the finishing event.  
+	// Check whether this is the task linked to the finishing event.
 	if (stepTask != null
 	    && auId.equals(((ReindexingTask)stepTask).getAuId())) {
 	  // Yes: Mark this task as finished.
 	  jobTask.notifyJobFinish();
 	  break;
 	}
+      }
+
+      if (status == ReindexingStatus.Success) {
+	mdxManager.clearRetryCount(auId);
+      } else if (jobAuStatus != null) {
+	mdxManager.maybeScheduleRetry(auId, needFullReindex, status, exception);
       }
     } catch (Exception e) {
       String message = "Error handling finish of metadata extraction";
@@ -667,7 +684,9 @@ public class JobManager extends BaseLockssDaemonManager implements
 	if (status == ReindexingStatus.Success) {
 	  markedJobs = markJobAsDone(conn, jobSeq, "Success");
 	} else {
-	  markedJobs = markJobAsDone(conn, jobSeq, "Failure: " + exception);
+	  markedJobs = markJobAsFailed(conn, jobSeq, "Failure: " + exception);
+	  pruneOldestFailedJobsForAu(conn, auId,
+	      mdxManager.getMaxFailedJobRowsPerAu());
 	}
 
 	if (log.isDebug3())
@@ -774,6 +793,23 @@ public class JobManager extends BaseLockssDaemonManager implements
   int markJobAsDone(Connection conn, Long jobSeq, String statusMessage)
       throws DbException {
     return jobManagerSql.markJobAsDone(conn, jobSeq, statusMessage);
+  }
+
+  /**
+   * Marks a job as failed; the row is preserved as a durable failure record.
+   */
+  int markJobAsFailed(Connection conn, Long jobSeq, String statusMessage)
+      throws DbException {
+    return jobManagerSql.markJobAsFailed(conn, jobSeq, statusMessage);
+  }
+
+  /**
+   * Prunes the oldest FAILED job rows for an AU so that no more than
+   * {@code keepCount} remain.
+   */
+  int pruneOldestFailedJobsForAu(Connection conn, String auId, int keepCount)
+      throws DbException {
+    return jobManagerSql.pruneOldestFailedJobsForAu(conn, auId, keepCount);
   }
 
   /**

@@ -364,6 +364,32 @@ public class JobDbManagerSql extends DbManagerSql {
   }
 
   /**
+   * Updates the database from version 3 to version 4.
+   *
+   * Adds the JOB_STATUS_FAILED status so that failed metadata-extraction jobs
+   * can be distinguished from successfully completed ones (which both used to
+   * share JOB_STATUS_DONE) and so that the dedup loop in
+   * createMetadataExtractionJob can leave them untouched as a durable failure
+   * record.
+   *
+   * @param conn
+   *          A Connection with the database connection to be used.
+   * @throws SQLException
+   *           if any problem occurred updating the database.
+   */
+  void updateDatabaseFrom3To4(Connection conn) throws SQLException {
+    log.debug2("Invoked");
+
+    if (conn == null) {
+      throw new IllegalArgumentException("Null connection");
+    }
+
+    addJobStatus(conn, JOB_STATUS_FAILED);
+
+    log.debug2("Done");
+  }
+
+  /**
    * Adds the job queue metadata to the database.
    * 
    * @param conn
