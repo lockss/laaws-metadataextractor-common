@@ -35,10 +35,14 @@ import java.sql.Connection;
 import java.util.Collection;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Map;
 import org.lockss.app.LockssDaemon;
+import org.lockss.config.AuConfiguration;
 import org.lockss.config.ConfigManager;
 import org.lockss.config.Configuration;
 import org.lockss.config.Configuration.Callback;
+import org.lockss.config.RestConfigClient;
+import org.lockss.config.rest.AuConfigPageInfo;
 import org.lockss.daemon.LockssRunnable;
 import org.lockss.db.DbException;
 import org.lockss.metadata.MetadataDbManager;
@@ -47,10 +51,11 @@ import org.lockss.metadata.extractor.job.JobManager;
 import org.lockss.plugin.ArchivalUnit;
 import org.lockss.plugin.AuEvent;
 import org.lockss.plugin.AuEventHandler;
-import org.lockss.plugin.AuUtil;
 import org.lockss.plugin.PluginManager;
-import org.lockss.util.CollectionUtil;
 import org.lockss.util.Logger;
+import org.lockss.util.rest.config.PageInfo;
+import org.lockss.util.rest.exception.LockssRestException;
+import org.lockss.util.time.Deadline;
 import org.lockss.util.time.TimeBase;
 
 /**
@@ -63,7 +68,6 @@ public class MetadataIndexingStarter extends LockssRunnable {
   private final MetadataExtractorManager mdxManager;
   private final PluginManager pluginManager;
   private final JobManager jobManager;
-  private final long metadataExtractionCheckInterval;
 
   /**
    * Constructor.
@@ -89,7 +93,6 @@ public class MetadataIndexingStarter extends LockssRunnable {
     this.mdxManager = mdxManager;
     this.pluginManager = pluginManager;
     this.jobManager = jobManager;
-    this.metadataExtractionCheckInterval = metadataExtractionCheckInterval;
   }
 
   /**
@@ -133,32 +136,143 @@ public class MetadataIndexingStarter extends LockssRunnable {
     // Loop indefinitely.
     while (true) {
       // Schedule the metadata extraction of Archival Units that require it.
-      long beforeTimestamp = TimeBase.nowMs();
       scheduleNeededMetadataExtractionJobs();
 
-      // Compute the amount of time to wait until the next check.
-      long intervalLeft = metadataExtractionCheckInterval
-	  - (TimeBase.nowMs() - beforeTimestamp);
-
-      long delay = intervalLeft >= 0 ? intervalLeft : 0;
-      if (log.isDebug3()) log.debug3("Sleeping for " + delay + " ms...");
+      // Amount of time to wait until the next check.
+      Deadline deadline = Deadline.in(mdxManager.getMetadataExtractionCheckInterval());
+      log.debug3("Sleeping until " + deadline);
 
       // Wait until the next metadata extraction check.
       try {
-	Thread.sleep(delay);
-      } catch (InterruptedException ie) {}
+        deadline.sleep();
+      } catch (InterruptedException e) {
+        // Intentionally left blank
+      }
 
-      if (log.isDebug3()) log.debug3("Back from sleep.");
+      log.debug3("Back from sleep.");
     }
   }
 
+  /**
+   * Scans every configured Archival Unit and enqueues any that need
+   * metadata extraction.
+   *
+   * <p>When a {@link RestConfigClient} is active (the typical metadata-
+   * service deployment, where the config service is remote), the scan
+   * pages through
+   * {@link RestConfigClient#getArchivalUnitConfigurationsPage(String)} and
+   * processes each page fully before fetching the next — so the entire
+   * AuConfiguration list is never held in memory at once. AUs whose
+   * configuration has {@code reserved.disabled = true} (i.e.
+   * {@link PluginManager#AU_PARAM_DISABLED}) are skipped without any DB
+   * predicate evaluation.
+   *
+   * <p>When the RestConfigClient is not active (single-node embedded
+   * deployment, or unit tests), the scan falls back to
+   * {@link PluginManager#getAllAus()}. That source is incomplete in the
+   * presence of unstarted AUs, but in the embedded case there is no AU
+   * that exists outside this JVM to miss.
+   */
   private void scheduleNeededMetadataExtractionJobs() {
     final String DEBUG_HEADER = "scheduleNeededMetadataExtractionJobs(): ";
     log.debug2(DEBUG_HEADER + "Starting...");
 
-    // Get a connection to the database.
-    Connection conn;
+    RestConfigClient restClient =
+        ConfigManager.getConfigManager().getRestConfigClient();
 
+    if (restClient != null && restClient.isActive()) {
+      scanViaRestConfigClient(restClient);
+    } else {
+      scanViaPluginManager();
+    }
+
+    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
+  }
+
+  /**
+   * Pages through the config service, processing each page fully before
+   * fetching the next.
+   */
+  private void scanViaRestConfigClient(RestConfigClient restClient) {
+    final String DEBUG_HEADER = "scanViaRestConfigClient(): ";
+
+    String continuationToken = null;
+    int pageNum = 0;
+    do {
+      AuConfigPageInfo pageInfo;
+      try {
+        pageInfo = restClient.getArchivalUnitConfigurationsPage(
+            continuationToken);
+      } catch (LockssRestException lre) {
+        log.error("Failed to fetch AU configurations page " + pageNum
+            + " (continuationToken = " + continuationToken + ")", lre);
+        return;
+      }
+      pageNum++;
+
+      if (pageInfo != null && pageInfo.getAuConfigs() != null
+          && !pageInfo.getAuConfigs().isEmpty()) {
+        processAuConfigurationPage(pageInfo.getAuConfigs(), pageNum);
+      } else if (log.isDebug3()) {
+        log.debug3(DEBUG_HEADER + "page " + pageNum + " is empty");
+      }
+
+      PageInfo pageInfoData = (pageInfo == null) ?
+          null : pageInfo.getPageInfo();
+      continuationToken = (pageInfoData == null) ?
+          null : pageInfoData.getContinuationToken();
+    } while (continuationToken != null);
+
+    log.debug2(DEBUG_HEADER + "scanned " + pageNum + " page(s).");
+  }
+
+  /**
+   * Embedded/test fallback: enumerate from in-process started AUs. Misses
+   * unstarted AUs, but in a single-node deployment there are none.
+   */
+  private void scanViaPluginManager() {
+    List<String> auIds = new ArrayList<String>();
+    for (ArchivalUnit au : pluginManager.getAllAus()) {
+      auIds.add(au.getAuId());
+    }
+    processAuIds(auIds);
+  }
+
+  /**
+   * Processes a single page's worth of AuConfigurations: skips AUs disabled
+   * via {@code reserved.disabled}, then defers to {@link #processAuIds}
+   * for the rest.
+   */
+  private void processAuConfigurationPage(
+      Collection<AuConfiguration> pageConfigs, int pageNum) {
+    final String DEBUG_HEADER = "processAuConfigurationPage(): ";
+
+    List<String> auIds = new ArrayList<String>(pageConfigs.size());
+    for (AuConfiguration auc : pageConfigs) {
+      String auId = auc.getAuId();
+      if (auId == null) continue;
+
+      Map<String, String> cfg = auc.getAuConfig();
+      if (cfg != null
+          && "true".equalsIgnoreCase(cfg.get(PluginManager.AU_PARAM_DISABLED))) {
+        if (log.isDebug3())
+          log.debug3(DEBUG_HEADER + "AU '" + auId + "' is reserved.disabled");
+        continue;
+      }
+      auIds.add(auId);
+    }
+    processAuIds(auIds);
+  }
+
+  /**
+   * Per-AU predicate evaluation and enqueue. Shared between the REST-paged
+   * and the in-process fallback paths.
+   */
+  private void processAuIds(Collection<String> auIds) {
+    final String DEBUG_HEADER = "processAuIds(): ";
+    if (auIds.isEmpty()) return;
+
+    Connection conn;
     try {
       conn = dbManager.getConnection();
     } catch (DbException dbe) {
@@ -166,69 +280,36 @@ public class MetadataIndexingStarter extends LockssRunnable {
       return;
     }
 
-    log.debug2(DEBUG_HEADER + "Examining AUs");
-
-    List<ArchivalUnit> toBeIndexed = new ArrayList<ArchivalUnit>();
-
+    List<String> toBeIndexed = new ArrayList<String>();
     try {
-      // Loop through all the AUs to see which need to be on the pending queue.
-      for (ArchivalUnit au : pluginManager.getAllAus()) {
-        if (log.isDebug3())
-          log.debug3(DEBUG_HEADER + "Plugin AU = " + au.getName());
-
-        // Check whether the AU has not been crawled.
-        if (!AuUtil.hasCrawled(au)) {
-          // Yes: Do not index it.
-          if (log.isDebug3())
-            log.debug3(DEBUG_HEADER + "AU has not been crawled: No indexing.");
-          continue;
-        } else {
-          // No: Check whether the plugin's md extractor version is newer
-          // than the version of the metadata already in the database or
-          // whether the AU metadata hasn't been extracted since the last
-          // successful crawl.
-          try {
-            if (mdxManager.isAuMetadataForObsoletePlugin(conn, au)
-                || mdxManager.isAuCrawledAndNotExtracted(conn, au)) {
-              // Yes: index it.
-              if (log.isDebug3())
-                log.debug3(DEBUG_HEADER + "AU is to be indexed");
-              toBeIndexed.add(au);
-            } else {
-              // No.
-              if (log.isDebug3())
-                log.debug3(DEBUG_HEADER + "AU does not need to be indexed");
-            }
-          } catch (DbException dbe) {
-            log.error("Cannot get AU metadata version: " + dbe);
+      for (String auId : auIds) {
+        try {
+          // isAuCrawledAndNotExtracted already returns false for never-
+          // crawled AUs (lastCrawlTime == -1), so no separate hasCrawled
+          // guard is needed.
+          if (mdxManager.isAuMetadataForObsoletePlugin(conn, auId)
+              || mdxManager.isAuCrawledAndNotExtracted(conn, auId)) {
+            if (log.isDebug3())
+              log.debug3(DEBUG_HEADER + "AU '" + auId + "' to be indexed");
+            toBeIndexed.add(auId);
           }
+        } catch (DbException dbe) {
+          log.error("Cannot evaluate AU '" + auId + "' for indexing", dbe);
         }
       }
     } finally {
       dbManager.safeRollbackAndClose(conn);
     }
 
-    log.debug2(DEBUG_HEADER + "Done examining AUs");
-
-    // Loop in random order through all the AUs to to be added to the pending
-    // queue.
-    for (ArchivalUnit au : (Collection<ArchivalUnit>)
-	    CollectionUtil.randomPermutation(toBeIndexed)) {
-      if (log.isDebug3())
-	log.debug3(DEBUG_HEADER + "Pending AU = " + au.getName());
-
-      String auId = au.getAuId();
-      if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auId = " + auId);
-
+    for (String auId : toBeIndexed) {
       try {
-	mdxManager.scheduleMetadataExtraction(au, auId);
+        mdxManager.scheduleMetadataExtraction(auId);
       } catch (Exception e) {
-	log.error("Cannot reindex metadata for " + auId, e);
-	return;
+        log.error("Cannot reindex metadata for " + auId, e);
+        // Continue with the rest; one bad enqueue should not poison the
+        // scan.
       }
     }
-
-    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
   }
 
   /**

@@ -1135,8 +1135,17 @@ public class MetadataExtractorManagerSql {
    */
   int getAuMetadataVersion(Connection conn, ArchivalUnit au)
       throws DbException {
+    return getAuMetadataVersion(conn, au.getAuId());
+  }
+
+  /**
+   * auId-based overload of {@link #getAuMetadataVersion(Connection,
+   * ArchivalUnit)}. Used by the scan path so unstarted AUs can be evaluated
+   * without an {@link ArchivalUnit} instance.
+   */
+  int getAuMetadataVersion(Connection conn, String auId) throws DbException {
     final String DEBUG_HEADER = "getAuMetadataVersion(): ";
-    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "au = " + au);
+    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "auId = " + auId);
 
     String pluginKey = null;
     String auKey = null;
@@ -1145,7 +1154,6 @@ public class MetadataExtractorManagerSql {
     ResultSet resultSet = null;
 
     try {
-      String auId = au.getAuId();
       pluginKey = PluginManager.pluginKeyFromAuId(auId);
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginKey() = " + pluginKey);
 
@@ -1165,7 +1173,7 @@ public class MetadataExtractorManagerSql {
     } catch (SQLException sqle) {
       String message = "Cannot get AU metadata version";
       log.error(message, sqle);
-      log.error("au = '" + au + "'.");
+      log.error("auId = '" + auId + "'.");
       log.error("SQL = '" + FIND_AU_METADATA_VERSION_QUERY + "'.");
       log.error("pluginKey = '" + pluginKey + "'.");
       log.error("auKey = '" + auKey + "'.");
@@ -1308,8 +1316,17 @@ public class MetadataExtractorManagerSql {
    */
   long getAuExtractionTime(Connection conn, ArchivalUnit au)
       throws DbException {
+    return getAuExtractionTime(conn, au.getAuId());
+  }
+
+  /**
+   * auId-based overload of {@link #getAuExtractionTime(Connection,
+   * ArchivalUnit)}. Used by the scan path so unstarted AUs can be evaluated
+   * without an {@link ArchivalUnit} instance.
+   */
+  long getAuExtractionTime(Connection conn, String auId) throws DbException {
     final String DEBUG_HEADER = "getAuExtractionTime(): ";
-    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "au = " + au);
+    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "auId = " + auId);
 
     String pluginKey = null;
     String auKey = null;
@@ -1318,7 +1335,6 @@ public class MetadataExtractorManagerSql {
     ResultSet resultSet = null;
 
     try {
-      String auId = au.getAuId();
       pluginKey = PluginManager.pluginKeyFromAuId(auId);
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginKey() = " + pluginKey);
 
@@ -1339,7 +1355,7 @@ public class MetadataExtractorManagerSql {
     } catch (SQLException sqle) {
       String message = "Cannot get AU extraction time";
       log.error(message, sqle);
-      log.error("au = '" + au + "'.");
+      log.error("auId = '" + auId + "'.");
       log.error("SQL = '" + FIND_AU_MD_EXTRACT_TIME_BY_AU_QUERY + "'.");
       log.error("pluginKey = '" + pluginKey + "'.");
       log.error("auKey = '" + auKey + "'.");

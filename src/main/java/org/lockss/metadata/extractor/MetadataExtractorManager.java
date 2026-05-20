@@ -1894,15 +1894,34 @@ public class MetadataExtractorManager extends BaseLockssManager implements
   boolean isAuMetadataForObsoletePlugin(ArchivalUnit au) {
     final String DEBUG_HEADER = "isAuMetadataForObsoletePlugin(): ";
 
-    // Get the plugin version of the stored AU metadata. 
+    // Get the plugin version of the stored AU metadata.
     int auVersion = mdxManagerSql.getAuMetadataVersion(au);
     log.debug(DEBUG_HEADER + "auVersion = " + auVersion);
 
-    // Get the current version of the plugin. 
+    // Get the current version of the plugin.
     int pVersion = getPluginMetadataVersionNumber(au.getPlugin());
     log.debug(DEBUG_HEADER + "pVersion = " + pVersion);
 
     return pVersion > auVersion;
+  }
+
+  /**
+   * auId-based no-Connection overload of
+   * {@link #isAuMetadataForObsoletePlugin(ArchivalUnit)}. Opens its own
+   * connection. See the Connection-taking overload for the unstarted-AU
+   * semantics (returns {@code false} if the plugin is not registered).
+   */
+  boolean isAuMetadataForObsoletePlugin(String auId) {
+    Connection conn = null;
+    try {
+      conn = dbManager.getConnection();
+      return isAuMetadataForObsoletePlugin(conn, auId);
+    } catch (DbException dbe) {
+      log.error("isAuMetadataForObsoletePlugin", dbe);
+      return false;
+    } finally {
+      MetadataDbManager.safeRollbackAndClose(conn);
+    }
   }
 
   /**
@@ -1924,12 +1943,45 @@ public class MetadataExtractorManager extends BaseLockssManager implements
       throws DbException {
     final String DEBUG_HEADER = "isAuMetadataForObsoletePlugin(): ";
 
-    // Get the plugin version of the stored AU metadata. 
+    // Get the plugin version of the stored AU metadata.
     int auVersion = mdxManagerSql.getAuMetadataVersion(conn, au);
     log.debug2(DEBUG_HEADER + "auVersion = " + auVersion);
 
-    // Get the current version of the plugin. 
+    // Get the current version of the plugin.
     int pVersion = getPluginMetadataVersionNumber(au.getPlugin());
+    log.debug2(DEBUG_HEADER + "pVersion = " + pVersion);
+
+    return pVersion > auVersion;
+  }
+
+  /**
+   * auId-based overload of {@link #isAuMetadataForObsoletePlugin(Connection,
+   * ArchivalUnit)}. Used by the scan path so unstarted AUs can be evaluated.
+   *
+   * <p>If the plugin for {@code auId} is not currently registered with the
+   * PluginManager (e.g. its JAR hasn't been loaded), this method returns
+   * {@code false} — we can't determine obsolescence without the live plugin,
+   * so we conservatively treat it as "not obsolete." The companion
+   * {@link #isAuCrawledAndNotExtracted(Connection, String)} check still
+   * catches AUs that simply haven't been extracted since their last crawl.
+   */
+  boolean isAuMetadataForObsoletePlugin(Connection conn, String auId)
+      throws DbException {
+    final String DEBUG_HEADER = "isAuMetadataForObsoletePlugin(): ";
+
+    Plugin plugin = pluginMgr.getPluginFromId(
+        PluginManager.pluginIdFromAuId(auId));
+    if (plugin == null) {
+      log.warning(DEBUG_HEADER
+          + "Plugin not registered for auId '" + auId
+          + "'; treating as not-obsolete");
+      return false;
+    }
+
+    int auVersion = mdxManagerSql.getAuMetadataVersion(conn, auId);
+    log.debug2(DEBUG_HEADER + "auVersion = " + auVersion);
+
+    int pVersion = getPluginMetadataVersionNumber(plugin);
     log.debug2(DEBUG_HEADER + "pVersion = " + pVersion);
 
     return pVersion > auVersion;
@@ -1938,7 +1990,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
   /**
    * Provides an indication of whether the metadata of an AU has not been saved
    * in the database after the last successful crawl of the AU.
-   * 
+   *
    * @param conn
    *          A Connection with the database connection to be used.
    * @param au
@@ -1953,11 +2005,35 @@ public class MetadataExtractorManager extends BaseLockssManager implements
       throws DbException {
     final String DEBUG_HEADER = "isAuCrawledAndNotExtracted(): ";
 
-    // Get the time of the last successful crawl of the AU. 
+    // Get the time of the last successful crawl of the AU.
     long lastCrawlTime = AuUtil.getAuState(au).getLastCrawlTime();
     log.debug2(DEBUG_HEADER + "lastCrawlTime = " + lastCrawlTime);
 
     long lastExtractionTime = mdxManagerSql.getAuExtractionTime(conn, au);
+    log.debug2(DEBUG_HEADER + "lastExtractionTime = " + lastExtractionTime);
+
+    return lastCrawlTime > lastExtractionTime;
+  }
+
+  /**
+   * auId-based overload of {@link #isAuCrawledAndNotExtracted(Connection,
+   * ArchivalUnit)}. Used by the scan path so unstarted AUs can be evaluated.
+   * Crawl time comes from the persisted AuStateBean, extraction time from
+   * the metadata DB — neither requires a live AU.
+   *
+   * <p>If the AU was never crawled, {@code lastCrawlTime} is -1 (per
+   * {@link AuStateBean}) and the predicate returns false, so this method
+   * subsumes the legacy {@code AuUtil.hasCrawled} guard.
+   */
+  boolean isAuCrawledAndNotExtracted(Connection conn, String auId)
+      throws DbException {
+    final String DEBUG_HEADER = "isAuCrawledAndNotExtracted(): ";
+
+    AuStateBean ausb = stateManager.getAuStateBean(auId);
+    long lastCrawlTime = (ausb == null) ? -1 : ausb.getLastCrawlTime();
+    log.debug2(DEBUG_HEADER + "lastCrawlTime = " + lastCrawlTime);
+
+    long lastExtractionTime = mdxManagerSql.getAuExtractionTime(conn, auId);
     log.debug2(DEBUG_HEADER + "lastExtractionTime = " + lastExtractionTime);
 
     return lastCrawlTime > lastExtractionTime;
@@ -2716,6 +2792,10 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     }
   }
 
+  public long getMetadataExtractionCheckInterval() {
+    return metadataExtractionCheckInterval;
+  }
+
   /**
    * Maximum number of retry attempts. Visible for tests.
    */
@@ -3149,20 +3229,41 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    */
   public void scheduleMetadataExtraction(ArchivalUnit au, String auId)
       throws Exception {
+    boolean fullReindex = (au != null) ? isAuMetadataForObsoletePlugin(au)
+	: isAuMetadataForObsoletePlugin(auId);
+    scheduleMetadataExtraction(auId, fullReindex);
+  }
+
+  /**
+   * Schedules the extraction and storage of all or part of the metadata for
+   * an Archival Unit, identified by auId only. Suitable for the scan path
+   * where the {@link ArchivalUnit} may not be started — full-vs-incremental
+   * is decided from the persisted AU metadata version and the live plugin
+   * version.
+   *
+   * @param auId
+   *          A String with the Archival Unit identifier.
+   * @throws Exception
+   *           if there are problems scheduling the metadata extraction.
+   */
+  public void scheduleMetadataExtraction(String auId) throws Exception {
+    scheduleMetadataExtraction(auId, isAuMetadataForObsoletePlugin(auId));
+  }
+
+  /**
+   * Common path shared by the auId- and au-based overloads. Hands the job
+   * off to JobManager and applies the new-AU priority bias when this is the
+   * AU's very first attempt.
+   */
+  private void scheduleMetadataExtraction(String auId, boolean fullReindex)
+      throws Exception {
     final String DEBUG_HEADER = "scheduleMetadataExtraction(): ";
     if (log.isDebug2()) {
-      log.debug2(DEBUG_HEADER + "au = " + au);
       log.debug2(DEBUG_HEADER + "auId = " + auId);
+      log.debug2(DEBUG_HEADER + "fullReindex = " + fullReindex);
     }
 
     try {
-      boolean fullReindex = true;
-
-      if (au != null) {
-	fullReindex = isAuMetadataForObsoletePlugin(au);
-	if (log.isDebug3()) log.debug3("fullReindex = " + fullReindex);
-      }
-
       JobAuStatus jobAuStatus =
 	  jobMgr.scheduleMetadataExtraction(auId, fullReindex);
       log.info("Scheduled metadata extraction job: " + jobAuStatus);
