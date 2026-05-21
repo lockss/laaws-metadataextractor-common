@@ -203,19 +203,41 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    */
   public static final boolean DEFAULT_PRIORTIZE_INDEXING_NEW_AUS = true;
 
-  /** Map of AUID regexp to priority.  If set, AUs are assigned the
-   * corresponding priority of the first regexp that their AUID matches.
-   * Priority must be an integer; priorities <= -10000 mean "do not index
-   * matching AUs", priorities <= -20000 mean "abort running indexes of
-   * matching AUs". (Priorities are not yet implemented - only "do not
-   * index" and "abort" are supported.)  */
+  /**
+   * Map of AUID regexp to priority. If set, AUs are assigned the corresponding
+   * priority of the first regexp that their AUID matches; the priority value
+   * is applied verbatim to the job row at insert time and the claim order is
+   * {@code priority DESC, job_seq ASC} — so larger values are claimed sooner.
+   *
+   * <p>Threshold semantics:
+   * <ul>
+   *   <li>Priorities &le; {@link #MIN_INDEX_PRIORITY} (-10000) mean "do not
+   *       index matching AUs" — the AU is excluded from insertion (see
+   *       {@link #isEligibleForReindexing(String)}).</li>
+   *   <li>Priorities &le; {@link #ABORT_INDEX_PRIORITY} (-20000) additionally
+   *       cause any running indexing tasks for matching AUs to be aborted
+   *       (see {@code processAbortPriorities}).</li>
+   *   <li>All other values (positive or negative) are valid queue priorities
+   *       and are applied to the job row at insertion.</li>
+   * </ul>
+   *
+   * <p>AUs not matched by any pattern fall through to the new-vs-existing
+   * default: new AUs default to {@link JobManager#NEW_AU_JOB_PRIORITY},
+   * existing AUs default to {@link JobManager#NORMAL_JOB_PRIORITY}.
+   */
   static final String PARAM_INDEX_PRIORITY_AUID_MAP =
     PREFIX + "indexPriorityAuidMap";
   static final List<String> DEFAULT_INDEX_PRIORITY_AUID_MAP = null;
 
   // TODO(pending_au-removal): remove with the pending_au table.
   static final int FAILED_INDEX_PRIORITY = -1000;
-  // TODO(pending_au-removal): remove with the pending_au table.
+  /**
+   * Lowest valid index priority. AUs whose {@code indexPriorityAuidMap}
+   * match is &le; this value are excluded from indexing entirely (see
+   * {@link #isEligibleForReindexing(String)}). All other map values
+   * (including negatives strictly greater than this threshold) are valid
+   * queue priorities.
+   */
   static final int MIN_INDEX_PRIORITY = -10000;
   private static final int ABORT_INDEX_PRIORITY = -20000;
 
@@ -898,8 +920,12 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    *
    * <p>Returns false if either:
    * <ul>
-   *   <li>the AU is excluded by the {@code indexPriorityAuidMap}
-   *       (a {@code priority < 0} match), or</li>
+   *   <li>the AU is excluded by {@code indexPriorityAuidMap} — i.e. its
+   *       matched priority is &le; {@link #MIN_INDEX_PRIORITY}
+   *       ({@value #MIN_INDEX_PRIORITY}). All other map values (including
+   *       negative values strictly greater than {@code MIN_INDEX_PRIORITY})
+   *       are treated as valid queue priorities; they don't exclude the
+   *       AU.</li>
    *   <li>the AU's {@link AuStateBean#isMetadataExtractionEnabled()} is
    *       false (e.g. an operator disabled extraction for this AU via the
    *       debug panel).</li>
@@ -911,8 +937,8 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    *         for reindexing, <code>false</code> otherwise.
    */
   public boolean isEligibleForReindexing(String auId) {
-    if (indexPriorityAuidMap != null &&
-        indexPriorityAuidMap.getMatch(auId, 0) < 0) {
+    if (indexPriorityAuidMap != null
+        && indexPriorityAuidMap.getMatch(auId, 0) <= MIN_INDEX_PRIORITY) {
       return false;
     }
     AuStateBean auStateBean = stateManager.getAuStateBean(auId);
@@ -920,6 +946,44 @@ public class MetadataExtractorManager extends BaseLockssManager implements
       return false;
     }
     return true;
+  }
+
+  /**
+   * Sentinel returned by {@link PatternIntMap#getMatch(String, int)} when
+   * no pattern matches. Used by {@link #derivePriorityForAu(String)} to
+   * distinguish "no map match" from a real mapped value.
+   */
+  private static final int PRIORITY_MAP_NO_MATCH = Integer.MIN_VALUE;
+
+  /**
+   * Computes the queue priority to assign to a job for {@code auId} at
+   * insertion time.
+   *
+   * <ol>
+   *   <li>If {@code indexPriorityAuidMap} matches {@code auId}, return the
+   *       mapped value verbatim (any integer, positive or negative). The
+   *       map is the operator-facing override mechanism.</li>
+   *   <li>Else, if {@code prioritizeIndexingNewAus} is enabled and the AU
+   *       has no metadata yet, return
+   *       {@link JobManager#NEW_AU_JOB_PRIORITY}.</li>
+   *   <li>Else return {@link JobManager#NORMAL_JOB_PRIORITY}.</li>
+   * </ol>
+   *
+   * <p>Eligibility-blocking values (&le; {@link #MIN_INDEX_PRIORITY}) are
+   * filtered out earlier by {@link #isEligibleForReindexing(String)} —
+   * this method is only called for eligible AUs.
+   */
+  long derivePriorityForAu(String auId) throws DbException {
+    if (indexPriorityAuidMap != null) {
+      int mapped = indexPriorityAuidMap.getMatch(auId, PRIORITY_MAP_NO_MATCH);
+      if (mapped != PRIORITY_MAP_NO_MATCH) {
+        return mapped;
+      }
+    }
+    if (prioritizeIndexingNewAus && mdxManagerSql.isAuNew(auId)) {
+      return JobManager.NEW_AU_JOB_PRIORITY;
+    }
+    return JobManager.NORMAL_JOB_PRIORITY;
   }
 
   /**
@@ -1228,14 +1292,15 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 	    log.debug3(DEBUG_HEADER + "priority = " + priority);
 	  auToReindex.priority = priority;
 
-	  // A pending job was marked new-AU at enqueue time via
-	  // jobMgr.setNewAuPriority(...) — see scheduleMetadataExtraction.
-	  // Recover that bit from the row's priority.
-	  auToReindex.isNew = priority == JobManager.NEW_AU_JOB_PRIORITY;
-
 	  Long jobTypeSeq = (Long) job.get(JOB_TYPE_SEQ_COLUMN);
 	  if (log.isDebug3())
 	    log.debug3(DEBUG_HEADER + "jobTypeSeq = " + jobTypeSeq);
+
+	  // The new-AU flag is recorded on the job row itself via the
+	  // JOB_TYPE_PUT_NEW_AU job type — no inference from the priority
+	  // value, which can collide with operator-supplied values in
+	  // indexPriorityAuidMap.
+	  auToReindex.isNew = jobMgr.isNewAuJob(jobTypeSeq);
 
 	  boolean needFullReindex = jobMgr.isFullReindexJob(jobTypeSeq);
 	  if (log.isDebug3())
@@ -3251,9 +3316,9 @@ public class MetadataExtractorManager extends BaseLockssManager implements
   }
 
   /**
-   * Common path shared by the auId- and au-based overloads. Hands the job
-   * off to JobManager and applies the new-AU priority bias when this is the
-   * AU's very first attempt.
+   * Common path shared by the auId- and au-based overloads. Derives the
+   * insertion priority and the new-AU flag, then hands the job off to
+   * JobManager in a single INSERT — no post-insert UPDATE is performed.
    */
   private void scheduleMetadataExtraction(String auId, boolean fullReindex)
       throws Exception {
@@ -3264,29 +3329,14 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     }
 
     try {
-      JobAuStatus jobAuStatus =
-	  jobMgr.scheduleMetadataExtraction(auId, fullReindex);
-      log.info("Scheduled metadata extraction job: " + jobAuStatus);
-
-      // Restore the legacy "prioritize new AUs" semantics, but only on the
-      // AU's very first extraction attempt. After any prior attempt
-      // (success or failure) we want the AU to compete on FIFO priority
-      // like any other re-index target. SKIPPED rows do not count as
-      // attempts — see JobManagerSql.isOnlyJobForAu.
-      if (prioritizeIndexingNewAus &&
-          jobAuStatus != null &&
-          mdxManagerSql.isAuNew(auId) &&
-          jobMgr.isOnlyJobForAu(auId, Long.valueOf(jobAuStatus.getId()))) {
-        try {
-          jobMgr.setNewAuPriority(Long.valueOf(jobAuStatus.getId()));
-          if (log.isDebug3()) log.debug3(DEBUG_HEADER
-              + "prioritized new AU '" + auId + "' (jobSeq = "
-              + jobAuStatus.getId() + ")");
-        } catch (DbException dbe) {
-          log.warning("Could not bias priority for new AU '" + auId + "'",
-              dbe);
-        }
+      boolean isNewAu = mdxManagerSql.isAuNew(auId);
+      long priority = derivePriorityForAu(auId);
+      if (log.isDebug3()) {
+        log.debug3(DEBUG_HEADER + "isNewAu = " + isNewAu + ", priority = " + priority);
       }
+      JobAuStatus jobAuStatus =
+          jobMgr.scheduleMetadataExtraction(auId, fullReindex, isNewAu, priority);
+      log.info("Scheduled metadata extraction job: " + jobAuStatus);
     } catch (Exception e) {
       log.error("Cannot reindex metadata for " + auId, e);
       throw e;
