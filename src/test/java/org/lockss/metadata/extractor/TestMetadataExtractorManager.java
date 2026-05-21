@@ -461,7 +461,7 @@ public class TestMetadataExtractorManager extends LockssTestCase4 {
     assertNotNull(jobAuStatus);
     assertEquals(1, jobAuStatus.getType().longValue());
 
-    // Add a third AU for incremental metadata indexing.
+    // Add a third AU for full metadata indexing.
     jobAuStatus = jobManager.scheduleMetadataExtraction(sau2.getAuId(), true);
     assertNotNull(jobAuStatus);
 
@@ -479,10 +479,32 @@ public class TestMetadataExtractorManager extends LockssTestCase4 {
     assertEquals(1, jobAuStatus.getType().longValue());
     String sau2JobId = jobAuStatus.getId();
 
+    // Add a pending new-AU extraction job and ensure the pending-task display
+    // preserves the new-AU classification.
+    jobAuStatus = jobManager.scheduleMetadataExtraction(sau3.getAuId(), true,
+        true, NEW_AU_JOB_PRIORITY);
+    assertNotNull(jobAuStatus);
+    assertEquals(4, jobAuStatus.getType().longValue());
+    String sau3JobId = jobAuStatus.getId();
+
+    mdxManager.getApp().getStartDate();
+    DisplayReindexingTask pendingNewAuTask = null;
+    for (DisplayReindexingTask task : mdxManager.getReindexingTasks()) {
+      if (sau3.getAuId().equals(task.getAuId())) {
+        pendingNewAuTask = task;
+        break;
+      }
+    }
+
+    assertNotNull(pendingNewAuTask);
+    assertTrue(pendingNewAuTask.isNewAu());
+    assertTrue(pendingNewAuTask.needsFullReindex());
+
     // Clear the table of pending AUs.
     jobAuStatus = jobManager.removeJob(sau0JobId);
     jobAuStatus = jobManager.removeJob(sau1JobId);
     jobAuStatus = jobManager.removeJob(sau2JobId);
+    jobAuStatus = jobManager.removeJob(sau3JobId);
 
     JobDbManager.safeRollbackAndClose(conn);
 
