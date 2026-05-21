@@ -144,13 +144,14 @@ public class JobTask implements Runnable {
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "jobType = " + jobType);
 
     // Full metadata extraction job (existing AU): run as full reindex.
-    // PUT_NEW_AU is treated identically to PUT_AU at runtime — the distinct
-    // type exists only so the status display can label it as a new-AU run.
-    if (JOB_TYPE_PUT_AU.equals(jobType)
-        || JOB_TYPE_PUT_NEW_AU.equals(jobType)) {
-      processPutAuJob(jobSeq, true);
+    // PUT_NEW_AU also runs as a full reindex, but it preserves the new-AU
+    // flag so status/history views can continue to label the run correctly.
+    if (JOB_TYPE_PUT_AU.equals(jobType)) {
+      processPutAuJob(jobSeq, true, false);
+    } else if (JOB_TYPE_PUT_NEW_AU.equals(jobType)) {
+      processPutAuJob(jobSeq, true, true);
     } else if (JOB_TYPE_PUT_INCREMENTAL_AU.equals(jobType)) {
-      processPutAuJob(jobSeq, false);
+      processPutAuJob(jobSeq, false, false);
     } else if (JOB_TYPE_DELETE_AU.equals(jobType)) {
       // Yes: Remove the metadata.
       processDeleteAuJob(jobSeq);
@@ -181,15 +182,20 @@ public class JobTask implements Runnable {
    * @param needFullReindex
    *          A boolean with the indication of whether a full extraction is to
    *          be performed or not.
+   * @param isNewAu
+   *          A boolean with the indication of whether this job is the initial
+   *          extraction for a never-yet-indexed AU.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
-  private void processPutAuJob(Long jobSeq, boolean needFullReindex)
+  private void processPutAuJob(Long jobSeq, boolean needFullReindex,
+      boolean isNewAu)
       throws DbException {
     final String DEBUG_HEADER = "processPutAuJob() - " + taskName + ": ";
     if (log.isDebug2()) {
       log.debug2(DEBUG_HEADER + "jobSeq = " + jobSeq);
       log.debug2(DEBUG_HEADER + "needFullReindex = " + needFullReindex);
+      log.debug2(DEBUG_HEADER + "isNewAu = " + isNewAu);
     }
 
     Connection conn = null;
@@ -198,7 +204,7 @@ public class JobTask implements Runnable {
       // Get a connection to the database.
       conn = dbManager.getConnection();
 
-      processPutAuJob(conn, jobSeq, needFullReindex);
+      processPutAuJob(conn, jobSeq, needFullReindex, isNewAu);
     } finally {
       JobDbManager.safeRollbackAndClose(conn);
     }
@@ -216,15 +222,19 @@ public class JobTask implements Runnable {
    * @param needFullReindex
    *          A boolean with the indication of whether a full extraction is to
    *          be performed or not.
+   * @param isNewAu
+   *          A boolean with the indication of whether this job is the initial
+   *          extraction for a never-yet-indexed AU.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
   private void processPutAuJob(Connection conn, Long jobSeq,
-      boolean needFullReindex) throws DbException {
+      boolean needFullReindex, boolean isNewAu) throws DbException {
     final String DEBUG_HEADER = "processPutAuJob() - " + taskName + ": ";
     if (log.isDebug2()) {
       log.debug2(DEBUG_HEADER + "jobSeq = " + jobSeq);
       log.debug2(DEBUG_HEADER + "needFullReindex = " + needFullReindex);
+      log.debug2(DEBUG_HEADER + "isNewAu = " + isNewAu);
     }
 
     String auId = jobManager.getJobAuId(conn, jobSeq);
@@ -244,7 +254,8 @@ public class JobTask implements Runnable {
     }
 
     // Extract the metadata.
-    stepTask = mdxManager.onDemandStartReindexing(auId, needFullReindex);
+    stepTask = mdxManager.onDemandStartReindexing(auId, needFullReindex,
+        isNewAu);
 
     // Wait until the process is done.
     while (!isJobFinished) {

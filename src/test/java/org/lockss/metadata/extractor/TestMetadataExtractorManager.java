@@ -667,6 +667,12 @@ public class TestMetadataExtractorManager extends LockssTestCase4 {
     assertEquals(FULL_REINDEX_TEXT, mmsa.getIndexTypeDisplayString(pAuId));
     pAuId.isNew = true;
     assertEquals(NEW_INDEX_TEXT, mmsa.getIndexTypeDisplayString(pAuId));
+
+    ReindexingTask task = mdxManager.onDemandStartReindexing(sau0.getAuId(),
+        true, true);
+    assertTrue(task.isNewAu());
+    assertTrue(task.needsFullReindex());
+    task.cancel();
   }
 
   private void runRemoveChildMetadataItemTest() throws Exception {
