@@ -143,15 +143,14 @@ public class JobTask implements Runnable {
     String jobType = jobManager.getJobType(jobSeq);
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "jobType = " + jobType);
 
-    // Check whether it's a full metadata extraction job.
-    if (JOB_TYPE_PUT_AU.equals(jobType)) {
-      // Yes: Extract the metadata.
+    // Full metadata extraction job (existing AU): run as full reindex.
+    // PUT_NEW_AU is treated identically to PUT_AU at runtime — the distinct
+    // type exists only so the status display can label it as a new-AU run.
+    if (JOB_TYPE_PUT_AU.equals(jobType)
+        || JOB_TYPE_PUT_NEW_AU.equals(jobType)) {
       processPutAuJob(jobSeq, true);
-      // No: Check whether it's an incremental metadata extraction job.
     } else if (JOB_TYPE_PUT_INCREMENTAL_AU.equals(jobType)) {
-      // Yes: Extract the metadata.
       processPutAuJob(jobSeq, false);
-      // No: Check whether it's a metadata removal job.
     } else if (JOB_TYPE_DELETE_AU.equals(jobType)) {
       // Yes: Remove the metadata.
       processDeleteAuJob(jobSeq);

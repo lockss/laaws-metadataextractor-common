@@ -239,7 +239,14 @@ public class JobManager extends BaseLockssDaemonManager implements
    *          A String with the Archival Unit identifier.
    * @param needFullReindex
    *          A boolean with the indication of whether a full re-indexing is to
-   *          be performed or not.
+   *          be performed or not (ignored when {@code isNewAu} is true; new
+   *          AUs are always full reindex).
+   * @param isNewAu
+   *          true if the AU has no metadata stored yet — selects the
+   *          JOB_TYPE_PUT_NEW_AU job type.
+   * @param priority
+   *          The priority to assign to the inserted job row. Larger value
+   *          = higher priority (claimed sooner); ties tiebreak by job_seq.
    * @return a JobAuStatus with the details of the scheduled job.
    * @throws IllegalArgumentException
    *           if the Archival Unit does not exist.
@@ -247,28 +254,34 @@ public class JobManager extends BaseLockssDaemonManager implements
    *           if there are problems scheduling the job.
    */
   public JobAuStatus scheduleMetadataExtraction(String auId,
-      boolean needFullReindex) throws IllegalArgumentException, Exception {
+      boolean needFullReindex, boolean isNewAu, long priority)
+      throws IllegalArgumentException, Exception {
     final String DEBUG_HEADER = "scheduleMetadataExtraction(): ";
     if (log.isDebug2()) {
       log.debug2(DEBUG_HEADER + "auId = " + auId);
       log.debug2(DEBUG_HEADER + "needFullReindex = " + needFullReindex);
+      log.debug2(DEBUG_HEADER + "isNewAu = " + isNewAu);
+      log.debug2(DEBUG_HEADER + "priority = " + priority);
     }
 
     JobAuStatus job = null;
     String auName = getAuName(auId);
 
-    String message = null;
-
-    if (needFullReindex) {
-	message = "Cannot schedule a full metadata extraction for auId = '"
-	    + auId + "'";
+    String message;
+    if (isNewAu) {
+      message = "Cannot schedule an initial metadata extraction for new"
+          + " auId = '" + auId + "'";
+    } else if (needFullReindex) {
+      message = "Cannot schedule a full metadata extraction for auId = '"
+          + auId + "'";
     } else {
-	message = "Cannot schedule an incremental metadata extraction for "
-	    + "auId = '" + auId + "'";
+      message = "Cannot schedule an incremental metadata extraction for "
+          + "auId = '" + auId + "'";
     }
 
     try {
-      job = jobManagerSql.createMetadataExtractionJob(auId, needFullReindex);
+      job = jobManagerSql.createMetadataExtractionJob(auId, needFullReindex,
+          isNewAu, priority);
       job.setAuName(auName);
     } catch (IllegalArgumentException iae) {
       log.error(message, iae);
@@ -280,6 +293,19 @@ public class JobManager extends BaseLockssDaemonManager implements
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "job = " + job);
     return job;
+  }
+
+  /**
+   * Convenience overload for callers that don't have an isNewAu hint or a
+   * custom priority — defaults to a non-new AU at
+   * {@link #NORMAL_JOB_PRIORITY}. Used by the retry path
+   * ({@link org.lockss.metadata.extractor.MetadataExtractorManager#maybeScheduleRetry})
+   * and by external callers (e.g. the REST {@code /mdupdates} endpoint).
+   */
+  public JobAuStatus scheduleMetadataExtraction(String auId,
+      boolean needFullReindex) throws IllegalArgumentException, Exception {
+    return scheduleMetadataExtraction(auId, needFullReindex, false,
+        NORMAL_JOB_PRIORITY);
   }
 
   /**
@@ -813,45 +839,26 @@ public class JobManager extends BaseLockssDaemonManager implements
   }
 
   /**
-   * Job priority assigned to extractions of "new" (never-yet-indexed) AUs
-   * when {@code prioritizeIndexingNewAus} is enabled. Jobs are claimed in
-   * ascending priority order, so this value sorts ahead of the FIFO range
-   * produced by {@code INSERT_JOB_QUERY} (max(priority) + 1).
+   * Job priority assigned to normal (re-)indexing and removal jobs (existing
+   * AUs not otherwise specified by {@code indexPriorityAuidMap}). Claim
+   * order is {@code priority DESC, job_seq ASC}, so the per-row tiebreaker
+   * within this tier is FIFO by insertion.
    */
-  public static final long NEW_AU_JOB_PRIORITY = -1L;
+  public static final long NORMAL_JOB_PRIORITY = 0L;
 
   /**
-   * Returns true iff the given {@code jobSeq} is the only job row for
-   * {@code auId}. Opens its own connection.
+   * Default job priority assigned to extractions of "new" (never-yet-indexed)
+   * AUs when the AU is not matched by {@code indexPriorityAuidMap} and
+   * {@code prioritizeIndexingNewAus} is enabled. Larger value = higher
+   * priority under the {@code priority DESC, job_seq ASC} claim order, so
+   * {@code 1000} sorts ahead of {@link #NORMAL_JOB_PRIORITY}. Multiple
+   * new-AU jobs share this value; ties break by {@code job_seq} (FIFO).
+   *
+   * <p>Operators can override per-AU via {@code indexPriorityAuidMap}; the
+   * value used is the mapped value verbatim (any integer, positive or
+   * negative).
    */
-  public boolean isOnlyJobForAu(String auId, Long jobSeq) throws DbException {
-    Connection conn = null;
-    try {
-      conn = dbManager.getConnection();
-      return jobManagerSql.isOnlyJobForAu(conn, auId, jobSeq);
-    } finally {
-      JobDbManager.safeRollbackAndClose(conn);
-    }
-  }
-
-  /**
-   * Bias a job ahead of normal-priority jobs by setting its priority to
-   * {@link #NEW_AU_JOB_PRIORITY}. Opens and commits its own connection so
-   * callers can invoke this after {@link #scheduleMetadataExtraction(String,
-   * boolean)} returns.
-   */
-  public int setNewAuPriority(Long jobSeq) throws DbException {
-    Connection conn = null;
-    try {
-      conn = dbManager.getConnection();
-      int updated =
-	  jobManagerSql.setJobPriority(conn, jobSeq, NEW_AU_JOB_PRIORITY);
-      JobDbManager.commitOrRollback(conn, log);
-      return updated;
-    } finally {
-      JobDbManager.safeRollbackAndClose(conn);
-    }
-  }
+  public static final long NEW_AU_JOB_PRIORITY = 1000L;
 
   /**
    * Prunes the oldest job rows for an AU with the given status so that no
@@ -990,7 +997,7 @@ public class JobManager extends BaseLockssDaemonManager implements
 
       jobSeq = jobManagerSql.addJob(conn, jobTypeSeq, description, auId,
 	  creationTime, creationTime + 1, creationTime + 2, jobStatusSeq,
-	  statusMessage);
+	  statusMessage, NORMAL_JOB_PRIORITY);
 
       boolean claimed = jobManagerSql.claimUnclaimedJob(conn, "Test", jobSeq);
       if (log.isDebug3()) log.debug3("claimed? = " + claimed);
@@ -1114,13 +1121,31 @@ public class JobManager extends BaseLockssDaemonManager implements
 
   /**
    * Provides an indication of whether a job involves a full reindexing task.
-   * 
+   * Both JOB_TYPE_PUT_AU (full reindex of an existing AU) and
+   * JOB_TYPE_PUT_NEW_AU (initial indexing of a new AU) are full reindexes
+   * — neither is incremental.
+   *
    * @param jobTypeSeq An Long with the job type database identifier.
    * @return a boolean with <code>true</code> if the job involves a full
    *         reindexing task, <code>false</code> otherwise.
    */
   public boolean isFullReindexJob(Long jobTypeSeq) {
-    return jobManagerSql.getJobTypeSeqByName().get(JOB_TYPE_PUT_AU)
-	.equals(jobTypeSeq);
+    Map<String, Long> byName = jobManagerSql.getJobTypeSeqByName();
+    return byName.get(JOB_TYPE_PUT_AU).equals(jobTypeSeq)
+        || byName.get(JOB_TYPE_PUT_NEW_AU).equals(jobTypeSeq);
+  }
+
+  /**
+   * Provides an indication of whether a job was created for a new (never-
+   * yet-indexed) AU — i.e. its type is JOB_TYPE_PUT_NEW_AU. Used by the
+   * status display to render the "new" badge; runtime processing treats
+   * JOB_TYPE_PUT_NEW_AU identically to JOB_TYPE_PUT_AU.
+   *
+   * @param jobTypeSeq An Long with the job type database identifier.
+   * @return true iff jobTypeSeq corresponds to JOB_TYPE_PUT_NEW_AU.
+   */
+  public boolean isNewAuJob(Long jobTypeSeq) {
+    return jobManagerSql.getJobTypeSeqByName().get(JOB_TYPE_PUT_NEW_AU)
+        .equals(jobTypeSeq);
   }
 }
