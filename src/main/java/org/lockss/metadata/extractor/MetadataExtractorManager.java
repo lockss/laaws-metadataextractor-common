@@ -1131,6 +1131,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 	task.setAuName(auName);
 	Long jobTypeSeq = (Long) job.get(JOB_TYPE_SEQ_COLUMN);
 	if (log.isDebug3()) log.debug3("jobTypeSeq = " + jobTypeSeq);
+	task.setNewAu(jobMgr.isNewAuJob(jobTypeSeq));
 	task.setNeedFullReindex(jobMgr.isFullReindexJob(jobTypeSeq));
 	task.setStartTime((Long) job.get(START_TIME_COLUMN));
 	task.setEndTime((Long) job.get(END_TIME_COLUMN));
@@ -1221,6 +1222,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 	task.setAuName(auName);
 	Long jobTypeSeq = (Long) job.get(JOB_TYPE_SEQ_COLUMN);
 	if (log.isDebug3()) log.debug3("jobTypeSeq = " + jobTypeSeq);
+	task.setNewAu(jobMgr.isNewAuJob(jobTypeSeq));
 	task.setNeedFullReindex(jobMgr.isFullReindexJob(jobTypeSeq));
 	task.setStartTime((Long) job.get(START_TIME_COLUMN));
 	task.setEndTime((Long) job.get(END_TIME_COLUMN));
