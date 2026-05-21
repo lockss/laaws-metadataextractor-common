@@ -924,6 +924,16 @@ public class JobManager extends BaseLockssDaemonManager implements
   }
 
   /**
+   * Provides an indication of whether database-backed job operations are ready.
+   *
+   * @return <code>true</code> if the manager is enabled and its SQL helper has
+   *         been initialized, <code>false</code> otherwise.
+   */
+  private boolean isSqlReady() {
+    return jobManagerEnabled && jobManagerSql != null;
+  }
+
+  /**
    * Provides the count of reindexing jobs not started yet.
    * 
    * @return a long with the count of jobs not started yet.
@@ -931,7 +941,7 @@ public class JobManager extends BaseLockssDaemonManager implements
    *           if any problem occurred accessing the database.
    */
   public long getNotStartedReindexingJobsCount() throws DbException {
-    if (jobManagerEnabled) {
+    if (isSqlReady()) {
       return jobManagerSql.getNotStartedReindexingJobsCount();
     }
 
@@ -950,7 +960,7 @@ public class JobManager extends BaseLockssDaemonManager implements
    */
   public List<Map<String, Object>> getNotStartedReindexingJobs(int maxJobCount)
       throws DbException {
-    if (jobManagerEnabled) {
+    if (isSqlReady()) {
       return jobManagerSql.getNotStartedReindexingJobs(maxJobCount);
     }
 
@@ -1038,7 +1048,7 @@ public class JobManager extends BaseLockssDaemonManager implements
    *           if any problem occurred accessing the database.
    */
   public long getReindexingJobsCount() throws DbException {
-    if (jobManagerEnabled) {
+    if (isSqlReady()) {
       return jobManagerSql.getReindexingJobsCount();
     }
 
@@ -1053,7 +1063,7 @@ public class JobManager extends BaseLockssDaemonManager implements
    *           if any problem occurred accessing the database.
    */
   public long getSuccessfulReindexingJobsCount() throws DbException {
-    if (jobManagerEnabled) {
+    if (isSqlReady()) {
       return jobManagerSql.getSuccessfulReindexingJobsCount();
     }
 
@@ -1068,7 +1078,7 @@ public class JobManager extends BaseLockssDaemonManager implements
    *           if any problem occurred accessing the database.
    */
   public long getFailedReindexingJobsCount() throws DbException {
-    if (jobManagerEnabled) {
+    if (isSqlReady()) {
       return jobManagerSql.getFailedReindexingJobsCount();
     }
 
@@ -1089,7 +1099,7 @@ public class JobManager extends BaseLockssDaemonManager implements
    */
   public List<Map<String, Object>> getFinishedReindexingJobsBefore(
       int maxJobCount, long beforeTime) throws DbException {
-    if (jobManagerEnabled) {
+    if (isSqlReady()) {
       return jobManagerSql.getFinishedReindexingJobsBefore(maxJobCount,
 	  beforeTime);
     }
@@ -1111,7 +1121,7 @@ public class JobManager extends BaseLockssDaemonManager implements
    */
   public List<Map<String, Object>> getFailedReindexingJobsBefore(
       int maxJobCount, long beforeTime) throws DbException {
-    if (jobManagerEnabled) {
+    if (isSqlReady()) {
       return jobManagerSql.getFailedReindexingJobsBefore(maxJobCount,
 	  beforeTime);
     }
