@@ -832,16 +832,23 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 	    startWDog(WDOG_PARAM_INDEXER, WDOG_DEFAULT_INDEXER);
             triggerWDogOnExit(true);
 	    task.setWDog(this);
+            task.beginManualRun();
+            try {
+	      task.handleEvent(Schedule.EventType.START);
 
-	    task.handleEvent(Schedule.EventType.START);
+	      while (!task.isFinished()) {
+	        task.step(Integer.MAX_VALUE);
+	      }
 
-	    while (!task.isFinished()) {
-	      task.step(Integer.MAX_VALUE);
-	    }
-
-	    task.handleEvent(Schedule.EventType.FINISH);
-	    stopWDog();
-            triggerWDogOnExit(false);
+	      task.handleEvent(Schedule.EventType.FINISH);
+            } catch (Exception e) {
+              task.failManualRun(e);
+              throw e;
+            } finally {
+              task.endManualRun();
+	      stopWDog();
+              triggerWDogOnExit(false);
+            }
 	  }
 	};
 
@@ -3000,15 +3007,22 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 	  public void lockssRun() {
 	    startWDog(WDOG_PARAM_INDEXER, WDOG_DEFAULT_INDEXER);
 	    task.setWDog(this);
+            task.beginManualRun();
+            try {
+	      task.handleEvent(Schedule.EventType.START);
 
-	    task.handleEvent(Schedule.EventType.START);
+	      while (!task.isFinished()) {
+	        task.step(Integer.MAX_VALUE);
+	      }
 
-	    while (!task.isFinished()) {
-	      task.step(Integer.MAX_VALUE);
-	    }
-
-	    task.handleEvent(Schedule.EventType.FINISH);
-	    stopWDog();
+	      task.handleEvent(Schedule.EventType.FINISH);
+            } catch (Exception e) {
+              task.failManualRun(e);
+              throw e;
+            } finally {
+              task.endManualRun();
+	      stopWDog();
+            }
 	  }
 	};
 

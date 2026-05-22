@@ -100,7 +100,7 @@ public class JobTask implements Runnable {
 
     // Infinite loop.
     while (jobSeq == null) {
-      boolean doSleep = true;		// sleep if no job or error
+      long sleepMs = jobManager.getNoJobSleep();
       try {
 	// Claim the next job.
 	jobSeq = jobManager.claimNextJob(taskName);
@@ -110,7 +110,7 @@ public class JobTask implements Runnable {
 	  // Yes: Process it.
 	  taskName = baseTaskName + " - jobSeq=" + jobSeq;
 	  processJob(jobSeq);
-	  doSleep = false;
+	  sleepMs = jobManager.getInterJobSleep();
 	}
       } catch (Exception e) {
 	log.error("Exception caught claiming or processing job: ", e);
@@ -120,9 +120,8 @@ public class JobTask implements Runnable {
 	taskName = baseTaskName;
 	jobFinished.drainPermits();
       }
-      if (doSleep) {
-	sleep(DEBUG_HEADER, jobManager.getInterJobSleep());
-
+      if (sleepMs > 0) {
+	sleep(DEBUG_HEADER, sleepMs);
       }
     }
   }
