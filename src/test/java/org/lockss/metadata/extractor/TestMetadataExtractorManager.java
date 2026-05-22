@@ -92,7 +92,7 @@ public class TestMetadataExtractorManager extends LockssTestCase4 {
 
     ConfigurationUtil.addFromArgs(PARAM_INDEXING_ENABLED, "true");
     ConfigurationUtil.addFromArgs(PARAM_JOBMANAGER_ENABLED, "true");
-    ConfigurationUtil.addFromArgs(PARAM_SLEEP_DELAY_SECONDS, "2");
+    ConfigurationUtil.addFromArgs(PARAM_INTER_JOB_SLEEP, "1s");
 
     theDaemon = getMockLockssDaemon();
     theDaemon.getAlertManager();
@@ -555,7 +555,7 @@ public class TestMetadataExtractorManager extends LockssTestCase4 {
     final int expectedAuCount = 1;
     int maxWaitTime = 10000; // 10 sec. per au
     int ausCount = waitForReindexing(expectedAuCount, maxWaitTime);
-    assertEquals(ausCount, expectedAuCount);
+    assertEquals(expectedAuCount, ausCount);
 
     // ensure AU contains as many metadata table entries as before
     resultSet = dbManager.executeQuery(stmt);
