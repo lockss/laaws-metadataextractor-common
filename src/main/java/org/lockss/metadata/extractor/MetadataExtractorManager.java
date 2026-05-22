@@ -1056,41 +1056,6 @@ public class MetadataExtractorManager extends BaseLockssManager implements
       }
     }
 
-    log.debug3("Pending tasks:");
-
-    try {
-      // Loop through all the pending tasks in the job database.
-      for (Map<String, Object> job : jobMgr.getNotStartedReindexingJobs(
-	  maxReindexingTaskHistory - taskCount)) {
-	// Add it to the list.
-	DisplayReindexingTask task = new DisplayReindexingTask();
-	String auId = PluginManager.generateAuId((
-	    String)job.get(PLUGIN_ID_COLUMN), (String)job.get(AU_KEY_COLUMN));
-	if (log.isDebug3()) log.debug3("auId = " + auId);
-	task.setAuId(auId);
-	String auName = getAuName(auId);
-	task.setAuName(auName);
-	Long jobTypeSeq = (Long) job.get(JOB_TYPE_SEQ_COLUMN);
-	if (log.isDebug3()) log.debug3("jobTypeSeq = " + jobTypeSeq);
-	task.setNewAu(jobMgr.isNewAuJob(jobTypeSeq));
-	task.setNeedFullReindex(jobMgr.isFullReindexJob(jobTypeSeq));
-	if (log.isDebug3()) log.debug3("task = " + task);
-	tasks.add(task);
-
-	// Count the task.
-	taskCount++;
-      }
-    } catch (DbException dbe) {
-      log.error("jobMgr.getNotStartedReindexingJobs() threw", dbe);
-    } catch (Exception e) {
-      log.error("getAuName() threw", e);
-    }
-
-    // Done if the list is full.
-    if (taskCount == maxReindexingTaskHistory) {
-      return tasks;
-    }
-
     log.debug3("Current finished tasks:");
 
     // Loop through all the finished tasks in the current history in memory.
@@ -1168,6 +1133,41 @@ public class MetadataExtractorManager extends BaseLockssManager implements
       }
     } catch (DbException dbe) {
       log.error("jobMgr.getFinishedReindexingJobsBefore() threw", dbe);
+    } catch (Exception e) {
+      log.error("getAuName() threw", e);
+    }
+
+    // Done if the list is full.
+    if (taskCount == maxReindexingTaskHistory) {
+      return tasks;
+    }
+
+    log.debug3("Pending tasks:");
+
+    try {
+      // Loop through all the pending tasks in the job database.
+      for (Map<String, Object> job : jobMgr.getNotStartedReindexingJobs(
+	  maxReindexingTaskHistory - taskCount)) {
+	// Add it to the list.
+	DisplayReindexingTask task = new DisplayReindexingTask();
+	String auId = PluginManager.generateAuId((
+	    String)job.get(PLUGIN_ID_COLUMN), (String)job.get(AU_KEY_COLUMN));
+	if (log.isDebug3()) log.debug3("auId = " + auId);
+	task.setAuId(auId);
+	String auName = getAuName(auId);
+	task.setAuName(auName);
+	Long jobTypeSeq = (Long) job.get(JOB_TYPE_SEQ_COLUMN);
+	if (log.isDebug3()) log.debug3("jobTypeSeq = " + jobTypeSeq);
+	task.setNewAu(jobMgr.isNewAuJob(jobTypeSeq));
+	task.setNeedFullReindex(jobMgr.isFullReindexJob(jobTypeSeq));
+	if (log.isDebug3()) log.debug3("task = " + task);
+	tasks.add(task);
+
+	// Count the task.
+	taskCount++;
+      }
+    } catch (DbException dbe) {
+      log.error("jobMgr.getNotStartedReindexingJobs() threw", dbe);
     } catch (Exception e) {
       log.error("getAuName() threw", e);
     }

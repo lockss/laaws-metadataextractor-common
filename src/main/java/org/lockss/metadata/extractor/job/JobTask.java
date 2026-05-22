@@ -47,7 +47,6 @@ import org.lockss.util.Logger;
 public class JobTask implements Runnable {
   private static final Logger log = Logger.getLogger(JobTask.class);
 
-  private long sleepMs = 60000;
   private String baseTaskName;
   private String taskName;
   private Long jobSeq = null;
@@ -72,7 +71,6 @@ public class JobTask implements Runnable {
     this.dbManager = dbManager;
     this.mdxManager = mdxManager;
     this.jobManager = jobManager;
-    sleepMs = jobManager.getSleepDelaySeconds() * 1000L;
   }
 
   /**
@@ -122,7 +120,8 @@ public class JobTask implements Runnable {
 	isJobFinished = false;
       }
       if (doSleep) {
-	sleep(DEBUG_HEADER);
+	sleep(DEBUG_HEADER, jobManager.getInterJobSleep());
+
       }
     }
   }
@@ -259,7 +258,7 @@ public class JobTask implements Runnable {
 
     // Wait until the process is done.
     while (!isJobFinished) {
-      sleep(DEBUG_HEADER);
+      sleep(DEBUG_HEADER, 10);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
@@ -314,7 +313,7 @@ public class JobTask implements Runnable {
 
     // Wait until the process is done.
     while (!isJobFinished) {
-      sleep(DEBUG_HEADER);
+      sleep(DEBUG_HEADER, 10);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
@@ -396,12 +395,12 @@ public class JobTask implements Runnable {
    * @param id
    *          A String with the name of the method requesting the wait.
    */
-  private void sleep(String id) {
+  private void sleep(String id, long ms) {
     if (log.isDebug3())
       log.debug3(id + "Going to sleep task '" + taskName + "'");
 
     try {
-      Thread.sleep(sleepMs);
+      Thread.sleep(ms);
     } catch (InterruptedException ie) {}
 
     if (log.isDebug3())

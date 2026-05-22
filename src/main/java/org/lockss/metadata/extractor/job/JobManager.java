@@ -51,6 +51,7 @@ import org.lockss.metadata.extractor.ReindexingTask;
 import org.lockss.plugin.ArchivalUnit;
 import org.lockss.plugin.PluginManager;
 import org.lockss.scheduler.StepTask;
+import org.lockss.util.Constants;
 import org.lockss.util.Logger;
 
 /**
@@ -87,13 +88,12 @@ public class JobManager extends BaseLockssDaemonManager implements
   /**
    * The sleep delay when no jobs are ready.
    */
-  public static final String PARAM_SLEEP_DELAY_SECONDS =
-      PREFIX + "sleepDelaySeconds";
+  public static final String PARAM_INTER_JOB_SLEEP = PREFIX + "interJobSleep";
 
   /** 
    * The default sleep delay when no jobs are ready.
    */
-  public static final long DEFAULT_SLEEP_DELAY_SECONDS = 60;
+  public static final long DEFAULT_INTER_JOB_SLEEP = 10 * Constants.SECOND;
 
   // An indication of whether this object has been enabled.
   private boolean jobManagerEnabled = DEFAULT_JOBMANAGER_ENABLED;
@@ -101,8 +101,8 @@ public class JobManager extends BaseLockssDaemonManager implements
   // The task list size.
   private int taskCount = DEFAULT_TASK_LIST_SIZE;
 
-  // The sleep delay when no jobs are ready.
-  private long sleepDelaySeconds = DEFAULT_SLEEP_DELAY_SECONDS;
+  // The delay between jobs.
+  private long interJobSleep = DEFAULT_INTER_JOB_SLEEP;
 
   // The plugin manager.
   private PluginManager pluginManager = null;
@@ -169,10 +169,8 @@ public class JobManager extends BaseLockssDaemonManager implements
 	  DEFAULT_TASK_LIST_SIZE));
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "taskCount = " + taskCount);
 
-      sleepDelaySeconds = Math.max(0, config.getLong(PARAM_SLEEP_DELAY_SECONDS,
-	  DEFAULT_SLEEP_DELAY_SECONDS));
-      if (log.isDebug3())
-	log.debug3(DEBUG_HEADER + "sleepDelaySeconds = " + sleepDelaySeconds);
+      interJobSleep = config.getTimeInterval(PARAM_INTER_JOB_SLEEP,
+	  DEFAULT_INTER_JOB_SLEEP);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
@@ -915,12 +913,12 @@ public class JobManager extends BaseLockssDaemonManager implements
   }
 
   /**
-   * Provides the sleep delay in seconds when no jobs are ready.
+   * Provides the sleep delay for each task between running jobs
    * 
-   * @return a long with the sleep delay in seconds when no jobs are ready.
+   * @return a long with inter job delay
    */
-  long getSleepDelaySeconds() {
-    return sleepDelaySeconds;
+  long getInterJobSleep() {
+    return interJobSleep;
   }
 
   /**
