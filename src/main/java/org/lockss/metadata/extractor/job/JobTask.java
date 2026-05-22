@@ -33,6 +33,7 @@ package org.lockss.metadata.extractor.job;
 
 import static org.lockss.metadata.extractor.job.SqlConstants.*;
 import java.sql.Connection;
+import java.util.concurrent.Semaphore;
 import org.lockss.app.LockssDaemon;
 import org.lockss.db.DbException;
 import org.lockss.metadata.extractor.MetadataExtractorManager;
@@ -53,7 +54,7 @@ public class JobTask implements Runnable {
   private JobDbManager dbManager;
   private MetadataExtractorManager mdxManager;
   private JobManager jobManager;
-  private boolean isJobFinished = false;
+  private final Semaphore jobFinished = new Semaphore(0);
   private StepTask stepTask = null;
 
   /**
@@ -117,7 +118,7 @@ public class JobTask implements Runnable {
 	jobSeq = null;
 	stepTask = null;
 	taskName = baseTaskName;
-	isJobFinished = false;
+	jobFinished.drainPermits();
       }
       if (doSleep) {
 	sleep(DEBUG_HEADER, jobManager.getInterJobSleep());
@@ -256,10 +257,7 @@ public class JobTask implements Runnable {
     stepTask = mdxManager.onDemandStartReindexing(auId, needFullReindex,
         isNewAu);
 
-    // Wait until the process is done.
-    while (!isJobFinished) {
-      sleep(DEBUG_HEADER, 10);
-    }
+    waitForJobFinish(DEBUG_HEADER);
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
   }
@@ -311,10 +309,7 @@ public class JobTask implements Runnable {
     // Delete the metadata.
     stepTask = mdxManager.startMetadataRemoval(auId);
 
-    // Wait until the process is done.
-    while (!isJobFinished) {
-      sleep(DEBUG_HEADER, 10);
-    }
+    waitForJobFinish(DEBUG_HEADER);
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
   }
@@ -386,7 +381,23 @@ public class JobTask implements Runnable {
    * Marks the job of this task as finished.
    */
   void notifyJobFinish() {
-    isJobFinished = true;
+    jobFinished.release();
+  }
+
+  /**
+   * Waits until the current job processing has finished.
+   *
+   * @param id
+   *          A String with the name of the method requesting the wait.
+   */
+  private void waitForJobFinish(String id) {
+    if (log.isDebug3())
+      log.debug3(id + "Waiting for job finish in task '" + taskName + "'");
+
+    jobFinished.acquireUninterruptibly();
+
+    if (log.isDebug3())
+      log.debug3(id + "Job finished in task '" + taskName + "'");
   }
 
   /**
