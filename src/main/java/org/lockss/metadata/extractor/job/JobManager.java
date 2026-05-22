@@ -86,14 +86,24 @@ public class JobManager extends BaseLockssDaemonManager implements
   public static final int DEFAULT_TASK_LIST_SIZE = 1;
 
   /**
-   * The sleep delay when no jobs are ready.
+   * The sleep delay after a job finishes running.
    */
   public static final String PARAM_INTER_JOB_SLEEP = PREFIX + "interJobSleep";
 
   /** 
-   * The default sleep delay when no jobs are ready.
+   * The default sleep delay after a job finishes running.
    */
   public static final long DEFAULT_INTER_JOB_SLEEP = 10 * Constants.SECOND;
+
+  /**
+   * The sleep delay when no jobs are ready.
+   */
+  public static final String PARAM_NO_JOB_SLEEP = PREFIX + "noJobSleep";
+
+  /**
+   * The default sleep delay when no jobs are ready.
+   */
+  public static final long DEFAULT_NO_JOB_SLEEP = 10 * Constants.SECOND;
 
   // An indication of whether this object has been enabled.
   private boolean jobManagerEnabled = DEFAULT_JOBMANAGER_ENABLED;
@@ -103,6 +113,9 @@ public class JobManager extends BaseLockssDaemonManager implements
 
   // The delay between jobs.
   private long interJobSleep = DEFAULT_INTER_JOB_SLEEP;
+
+  // The delay between polling attempts when no job is available.
+  private long noJobSleep = DEFAULT_NO_JOB_SLEEP;
 
   // The plugin manager.
   private PluginManager pluginManager = null;
@@ -171,6 +184,8 @@ public class JobManager extends BaseLockssDaemonManager implements
 
       interJobSleep = config.getTimeInterval(PARAM_INTER_JOB_SLEEP,
 	  DEFAULT_INTER_JOB_SLEEP);
+      noJobSleep = config.getTimeInterval(PARAM_NO_JOB_SLEEP,
+	  DEFAULT_NO_JOB_SLEEP);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
@@ -913,12 +928,21 @@ public class JobManager extends BaseLockssDaemonManager implements
   }
 
   /**
-   * Provides the sleep delay for each task between running jobs
+   * Provides the sleep delay for each task after running a job.
    * 
    * @return a long with inter job delay
    */
   long getInterJobSleep() {
     return interJobSleep;
+  }
+
+  /**
+   * Provides the sleep delay before checking again when no job is ready.
+   *
+   * @return a long with the no-job delay
+   */
+  long getNoJobSleep() {
+    return noJobSleep;
   }
 
   /**

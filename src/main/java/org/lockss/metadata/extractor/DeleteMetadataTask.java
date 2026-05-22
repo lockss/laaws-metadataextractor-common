@@ -137,6 +137,21 @@ public class DeleteMetadataTask extends StepTask {
     this.watchDog = watchDog;
   }
 
+  void beginManualRun() {
+    setStarted();
+    setStepping(true);
+  }
+
+  void failManualRun(Exception ex) {
+    e = ex;
+    setFinished();
+  }
+
+  void endManualRun() {
+    updateStats();
+    setStepping(false);
+  }
+
   void pokeWDog() {
     watchDog.pokeWDog();
   }

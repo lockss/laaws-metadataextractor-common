@@ -189,6 +189,21 @@ public class ReindexingTask extends StepTask {
     this.watchDog = watchDog;
   }
 
+  void beginManualRun() {
+    setStarted();
+    setStepping(true);
+  }
+
+  void failManualRun(Exception ex) {
+    e = ex;
+    setFinished();
+  }
+
+  void endManualRun() {
+    updateStats();
+    setStepping(false);
+  }
+
   /**
    * Refreshes the watchdog for another interval.
    */
