@@ -58,6 +58,7 @@ import org.lockss.app.ConfigurableManager;
 import org.lockss.app.LockssApp;
 import org.lockss.config.Configuration;
 import org.lockss.config.Configuration.Differences;
+import org.lockss.config.TdbUtil;
 import org.lockss.daemon.LockssRunnable;
 import org.lockss.daemon.status.StatusService;
 import org.lockss.db.DbException;
@@ -85,6 +86,7 @@ import org.lockss.plugin.AuUtil;
 import org.lockss.plugin.Plugin;
 import org.lockss.plugin.Plugin.Feature;
 import org.lockss.plugin.PluginManager;
+import org.lockss.plugin.base.BasePlugin;
 import org.lockss.scheduler.Schedule;
 import org.lockss.state.AuStateBean;
 import org.lockss.state.StateManager;
@@ -1762,6 +1764,49 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     return (au.getTdbAu() != null);
   }
 
+  /**
+   * Provides an indication of whether an AU has article metadata, identified
+   * by auId, without forcing the AU to be instantiated.
+   *
+   * <p>If the AU is already started, the live {@link ArchivalUnit} is used so
+   * the answer matches the running plugin exactly. Otherwise the determination
+   * is made from the plugin's factories and the title database (TDB), mirroring
+   * {@link #hasArticleMetadata(ArchivalUnit)} at the factory level: a plugin
+   * that defines an article iterator factory and, when metadata extraction is
+   * enabled, an article metadata extractor factory has article metadata, as
+   * does an AU backed by a TdbAu. Factory presence is a slightly looser test
+   * than the live check (a factory may yield a null iterator/extractor at
+   * runtime), but a false positive merely schedules a job that finds nothing,
+   * which is the pre-existing behavior.
+   *
+   * @param auId
+   *          A String with the Archival Unit identifier.
+   * @return <code>true</code> if the AU has article metadata,
+   *         <code>false</code> otherwise.
+   */
+  public boolean hasArticleMetadata(String auId) {
+    // Prefer the live AU when it is already started; never instantiate one.
+    ArchivalUnit au = pluginMgr.getAuFromIdIfExists(auId);
+    if (au != null) {
+      return hasArticleMetadata(au);
+    }
+
+    Plugin plugin = pluginMgr.getPluginFromAuId(auId);
+    if (plugin == null || plugin.getArticleIteratorFactory() == null) {
+      return false;
+    }
+
+    // It has article metadata if the plugin defines a metadata extractor.
+    if (useMetadataExtractor && plugin instanceof BasePlugin
+	&& ((BasePlugin) plugin).getArticleMetadataExtractorFactory(
+	    MetadataTarget.OpenURL()) != null) {
+      return true;
+    }
+
+    // Otherwise, it has metadata if it can be created from the TdbAu.
+    return TdbUtil.getTdbAu(auId, plugin) != null;
+  }
+
   // TODO(pending_au-removal): remove with the pending_au table.
   private void addAuBatchToPendingAus(PreparedStatement
       insertPendingAuBatchStatement) throws SQLException {
@@ -3329,6 +3374,11 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    */
   public void scheduleMetadataExtraction(ArchivalUnit au, String auId)
       throws Exception {
+    if (!hasArticleMetadata(auId)) {
+      log.debug2("Not scheduling metadata extraction for AU '" + auId
+	  + "'; it has no article metadata");
+      return;
+    }
     boolean fullReindex = (au != null) ? isAuMetadataForObsoletePlugin(au)
 	: isAuMetadataForObsoletePlugin(auId);
     scheduleMetadataExtraction(auId, fullReindex);
@@ -3347,6 +3397,11 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    *           if there are problems scheduling the metadata extraction.
    */
   public void scheduleMetadataExtraction(String auId) throws Exception {
+    if (!hasArticleMetadata(auId)) {
+      log.debug2("Not scheduling metadata extraction for AU '" + auId
+	  + "'; it has no article metadata");
+      return;
+    }
     scheduleMetadataExtraction(auId, isAuMetadataForObsoletePlugin(auId));
   }
 
