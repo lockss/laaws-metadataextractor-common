@@ -51,6 +51,7 @@ import org.lockss.metadata.extractor.ReindexingTask;
 import org.lockss.plugin.ArchivalUnit;
 import org.lockss.plugin.PluginManager;
 import org.lockss.scheduler.StepTask;
+import org.lockss.util.Constants;
 import org.lockss.util.Logger;
 
 /**
@@ -85,15 +86,24 @@ public class JobManager extends BaseLockssDaemonManager implements
   public static final int DEFAULT_TASK_LIST_SIZE = 1;
 
   /**
-   * The sleep delay when no jobs are ready.
+   * The sleep delay after a job finishes running.
    */
-  public static final String PARAM_SLEEP_DELAY_SECONDS =
-      PREFIX + "sleepDelaySeconds";
+  public static final String PARAM_INTER_JOB_SLEEP = PREFIX + "interJobSleep";
 
   /** 
+   * The default sleep delay after a job finishes running.
+   */
+  public static final long DEFAULT_INTER_JOB_SLEEP = 10 * Constants.SECOND;
+
+  /**
+   * The sleep delay when no jobs are ready.
+   */
+  public static final String PARAM_NO_JOB_SLEEP = PREFIX + "noJobSleep";
+
+  /**
    * The default sleep delay when no jobs are ready.
    */
-  public static final long DEFAULT_SLEEP_DELAY_SECONDS = 60;
+  public static final long DEFAULT_NO_JOB_SLEEP = 10 * Constants.SECOND;
 
   // An indication of whether this object has been enabled.
   private boolean jobManagerEnabled = DEFAULT_JOBMANAGER_ENABLED;
@@ -101,8 +111,11 @@ public class JobManager extends BaseLockssDaemonManager implements
   // The task list size.
   private int taskCount = DEFAULT_TASK_LIST_SIZE;
 
-  // The sleep delay when no jobs are ready.
-  private long sleepDelaySeconds = DEFAULT_SLEEP_DELAY_SECONDS;
+  // The delay between jobs.
+  private long interJobSleep = DEFAULT_INTER_JOB_SLEEP;
+
+  // The delay between polling attempts when no job is available.
+  private long noJobSleep = DEFAULT_NO_JOB_SLEEP;
 
   // The plugin manager.
   private PluginManager pluginManager = null;
@@ -169,10 +182,10 @@ public class JobManager extends BaseLockssDaemonManager implements
 	  DEFAULT_TASK_LIST_SIZE));
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "taskCount = " + taskCount);
 
-      sleepDelaySeconds = Math.max(0, config.getLong(PARAM_SLEEP_DELAY_SECONDS,
-	  DEFAULT_SLEEP_DELAY_SECONDS));
-      if (log.isDebug3())
-	log.debug3(DEBUG_HEADER + "sleepDelaySeconds = " + sleepDelaySeconds);
+      interJobSleep = config.getTimeInterval(PARAM_INTER_JOB_SLEEP,
+	  DEFAULT_INTER_JOB_SLEEP);
+      noJobSleep = config.getTimeInterval(PARAM_NO_JOB_SLEEP,
+	  DEFAULT_NO_JOB_SLEEP);
     }
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
@@ -239,7 +252,14 @@ public class JobManager extends BaseLockssDaemonManager implements
    *          A String with the Archival Unit identifier.
    * @param needFullReindex
    *          A boolean with the indication of whether a full re-indexing is to
-   *          be performed or not.
+   *          be performed or not (ignored when {@code isNewAu} is true; new
+   *          AUs are always full reindex).
+   * @param isNewAu
+   *          true if the AU has no metadata stored yet — selects the
+   *          JOB_TYPE_PUT_NEW_AU job type.
+   * @param priority
+   *          The priority to assign to the inserted job row. Larger value
+   *          = higher priority (claimed sooner); ties tiebreak by job_seq.
    * @return a JobAuStatus with the details of the scheduled job.
    * @throws IllegalArgumentException
    *           if the Archival Unit does not exist.
@@ -247,28 +267,34 @@ public class JobManager extends BaseLockssDaemonManager implements
    *           if there are problems scheduling the job.
    */
   public JobAuStatus scheduleMetadataExtraction(String auId,
-      boolean needFullReindex) throws IllegalArgumentException, Exception {
+      boolean needFullReindex, boolean isNewAu, long priority)
+      throws IllegalArgumentException, Exception {
     final String DEBUG_HEADER = "scheduleMetadataExtraction(): ";
     if (log.isDebug2()) {
       log.debug2(DEBUG_HEADER + "auId = " + auId);
       log.debug2(DEBUG_HEADER + "needFullReindex = " + needFullReindex);
+      log.debug2(DEBUG_HEADER + "isNewAu = " + isNewAu);
+      log.debug2(DEBUG_HEADER + "priority = " + priority);
     }
 
     JobAuStatus job = null;
     String auName = getAuName(auId);
 
-    String message = null;
-
-    if (needFullReindex) {
-	message = "Cannot schedule a full metadata extraction for auId = '"
-	    + auId + "'";
+    String message;
+    if (isNewAu) {
+      message = "Cannot schedule an initial metadata extraction for new"
+          + " auId = '" + auId + "'";
+    } else if (needFullReindex) {
+      message = "Cannot schedule a full metadata extraction for auId = '"
+          + auId + "'";
     } else {
-	message = "Cannot schedule an incremental metadata extraction for "
-	    + "auId = '" + auId + "'";
+      message = "Cannot schedule an incremental metadata extraction for "
+          + "auId = '" + auId + "'";
     }
 
     try {
-      job = jobManagerSql.createMetadataExtractionJob(auId, needFullReindex);
+      job = jobManagerSql.createMetadataExtractionJob(auId, needFullReindex,
+          isNewAu, priority);
       job.setAuName(auName);
     } catch (IllegalArgumentException iae) {
       log.error(message, iae);
@@ -280,6 +306,19 @@ public class JobManager extends BaseLockssDaemonManager implements
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "job = " + job);
     return job;
+  }
+
+  /**
+   * Convenience overload for callers that don't have an isNewAu hint or a
+   * custom priority — defaults to a non-new AU at
+   * {@link #NORMAL_JOB_PRIORITY}. Used by the retry path
+   * ({@link org.lockss.metadata.extractor.MetadataExtractorManager#maybeScheduleRetry})
+   * and by external callers (e.g. the REST {@code /mdupdates} endpoint).
+   */
+  public JobAuStatus scheduleMetadataExtraction(String auId,
+      boolean needFullReindex) throws IllegalArgumentException, Exception {
+    return scheduleMetadataExtraction(auId, needFullReindex, false,
+        NORMAL_JOB_PRIORITY);
   }
 
   /**
@@ -550,21 +589,32 @@ public class JobManager extends BaseLockssDaemonManager implements
       if (log.isDebug3())
 	log.debug3(DEBUG_HEADER + "jobAuStatus = " + jobAuStatus);
 
+      boolean needFullReindex = false;
+
       if (jobAuStatus != null) {
 	Long jobSeq = Long.valueOf(jobAuStatus.getId());
 	if (log.isDebug3()) log.debug3(DEBUG_HEADER + "jobSeq = " + jobSeq);
+
+	// Capture the job type before marking it Done so we can schedule the
+	// retry, if any, as the same kind of job.
+	needFullReindex = isFullReindexJob(jobAuStatus.getType());
 
 	int markedJobs = -1;
 
 	if (status == ReindexingStatus.Success) {
 	  markedJobs = markJobAsDone(conn, jobSeq, "Success");
 	} else {
-	  markedJobs = markJobAsDone(conn, jobSeq, "Failure: " + exception);
+	  markedJobs = markJobAsFailed(conn, jobSeq, "Failure: " + exception);
+	  pruneOldestJobsForAuByStatus(conn, auId, JOB_STATUS_FAILED,
+	      mdxManager.getMaxFailedJobRowsPerAu());
 	}
 
 	if (log.isDebug3())
 	  log.debug3(DEBUG_HEADER + "markedJobs = " + markedJobs);
 
+	// Commit the terminal state before enqueuing any retry:
+	// createMetadataExtractionJob skips FAILED rows during dedup, but the
+	// commit must happen here so retries take effect promptly.
 	JobDbManager.commitOrRollback(conn, log);
       }
 
@@ -576,13 +626,19 @@ public class JobManager extends BaseLockssDaemonManager implements
 	StepTask stepTask = jobTask.getStepTask();
 	if (log.isDebug3()) log.debug3(DEBUG_HEADER + "stepTask = " + stepTask);
 
-	// Check whether this is the task linked to the finishing event.  
+	// Check whether this is the task linked to the finishing event.
 	if (stepTask != null
 	    && auId.equals(((ReindexingTask)stepTask).getAuId())) {
 	  // Yes: Mark this task as finished.
 	  jobTask.notifyJobFinish();
 	  break;
 	}
+      }
+
+      if (status == ReindexingStatus.Success) {
+	mdxManager.clearRetryCount(auId);
+      } else if (jobAuStatus != null) {
+	mdxManager.maybeScheduleRetry(auId, needFullReindex, status, exception);
       }
     } catch (Exception e) {
       String message = "Error handling finish of metadata extraction";
@@ -667,7 +723,9 @@ public class JobManager extends BaseLockssDaemonManager implements
 	if (status == ReindexingStatus.Success) {
 	  markedJobs = markJobAsDone(conn, jobSeq, "Success");
 	} else {
-	  markedJobs = markJobAsDone(conn, jobSeq, "Failure: " + exception);
+	  markedJobs = markJobAsFailed(conn, jobSeq, "Failure: " + exception);
+	  pruneOldestJobsForAuByStatus(conn, auId, JOB_STATUS_FAILED,
+	      mdxManager.getMaxFailedJobRowsPerAu());
 	}
 
 	if (log.isDebug3())
@@ -777,6 +835,56 @@ public class JobManager extends BaseLockssDaemonManager implements
   }
 
   /**
+   * Marks a job as failed; the row is preserved as a durable failure record.
+   */
+  int markJobAsFailed(Connection conn, Long jobSeq, String statusMessage)
+      throws DbException {
+    return jobManagerSql.markJobAsFailed(conn, jobSeq, statusMessage);
+  }
+
+  /**
+   * Marks a job as skipped; the row is preserved as a record of the
+   * dequeue-time eligibility rejection.
+   */
+  int markJobAsSkipped(Connection conn, Long jobSeq, String statusMessage)
+      throws DbException {
+    return jobManagerSql.markJobAsSkipped(conn, jobSeq, statusMessage);
+  }
+
+  /**
+   * Job priority assigned to normal (re-)indexing and removal jobs (existing
+   * AUs not otherwise specified by {@code indexPriorityAuidMap}). Claim
+   * order is {@code priority DESC, job_seq ASC}, so the per-row tiebreaker
+   * within this tier is FIFO by insertion.
+   */
+  public static final long NORMAL_JOB_PRIORITY = 0L;
+
+  /**
+   * Default job priority assigned to extractions of "new" (never-yet-indexed)
+   * AUs when the AU is not matched by {@code indexPriorityAuidMap} and
+   * {@code prioritizeIndexingNewAus} is enabled. Larger value = higher
+   * priority under the {@code priority DESC, job_seq ASC} claim order, so
+   * {@code 1000} sorts ahead of {@link #NORMAL_JOB_PRIORITY}. Multiple
+   * new-AU jobs share this value; ties break by {@code job_seq} (FIFO).
+   *
+   * <p>Operators can override per-AU via {@code indexPriorityAuidMap}; the
+   * value used is the mapped value verbatim (any integer, positive or
+   * negative).
+   */
+  public static final long NEW_AU_JOB_PRIORITY = 1000L;
+
+  /**
+   * Prunes the oldest job rows for an AU with the given status so that no
+   * more than {@code keepCount} remain. Used to cap durable FAILED and
+   * SKIPPED histories per AU.
+   */
+  int pruneOldestJobsForAuByStatus(Connection conn, String auId,
+      String statusName, int keepCount) throws DbException {
+    return jobManagerSql.pruneOldestJobsForAuByStatus(conn, auId, statusName,
+	keepCount);
+  }
+
+  /**
    * Provides the name of an Archival Unit.
    * 
    * @param auId
@@ -820,12 +928,31 @@ public class JobManager extends BaseLockssDaemonManager implements
   }
 
   /**
-   * Provides the sleep delay in seconds when no jobs are ready.
+   * Provides the sleep delay for each task after running a job.
    * 
-   * @return a long with the sleep delay in seconds when no jobs are ready.
+   * @return a long with inter job delay
    */
-  long getSleepDelaySeconds() {
-    return sleepDelaySeconds;
+  long getInterJobSleep() {
+    return interJobSleep;
+  }
+
+  /**
+   * Provides the sleep delay before checking again when no job is ready.
+   *
+   * @return a long with the no-job delay
+   */
+  long getNoJobSleep() {
+    return noJobSleep;
+  }
+
+  /**
+   * Provides an indication of whether database-backed job operations are ready.
+   *
+   * @return <code>true</code> if the manager is enabled and its SQL helper has
+   *         been initialized, <code>false</code> otherwise.
+   */
+  private boolean isSqlReady() {
+    return jobManagerEnabled && jobManagerSql != null;
   }
 
   /**
@@ -836,7 +963,7 @@ public class JobManager extends BaseLockssDaemonManager implements
    *           if any problem occurred accessing the database.
    */
   public long getNotStartedReindexingJobsCount() throws DbException {
-    if (jobManagerEnabled) {
+    if (isSqlReady()) {
       return jobManagerSql.getNotStartedReindexingJobsCount();
     }
 
@@ -855,7 +982,7 @@ public class JobManager extends BaseLockssDaemonManager implements
    */
   public List<Map<String, Object>> getNotStartedReindexingJobs(int maxJobCount)
       throws DbException {
-    if (jobManagerEnabled) {
+    if (isSqlReady()) {
       return jobManagerSql.getNotStartedReindexingJobs(maxJobCount);
     }
 
@@ -902,7 +1029,7 @@ public class JobManager extends BaseLockssDaemonManager implements
 
       jobSeq = jobManagerSql.addJob(conn, jobTypeSeq, description, auId,
 	  creationTime, creationTime + 1, creationTime + 2, jobStatusSeq,
-	  statusMessage);
+	  statusMessage, NORMAL_JOB_PRIORITY);
 
       boolean claimed = jobManagerSql.claimUnclaimedJob(conn, "Test", jobSeq);
       if (log.isDebug3()) log.debug3("claimed? = " + claimed);
@@ -943,7 +1070,7 @@ public class JobManager extends BaseLockssDaemonManager implements
    *           if any problem occurred accessing the database.
    */
   public long getReindexingJobsCount() throws DbException {
-    if (jobManagerEnabled) {
+    if (isSqlReady()) {
       return jobManagerSql.getReindexingJobsCount();
     }
 
@@ -958,7 +1085,7 @@ public class JobManager extends BaseLockssDaemonManager implements
    *           if any problem occurred accessing the database.
    */
   public long getSuccessfulReindexingJobsCount() throws DbException {
-    if (jobManagerEnabled) {
+    if (isSqlReady()) {
       return jobManagerSql.getSuccessfulReindexingJobsCount();
     }
 
@@ -973,7 +1100,7 @@ public class JobManager extends BaseLockssDaemonManager implements
    *           if any problem occurred accessing the database.
    */
   public long getFailedReindexingJobsCount() throws DbException {
-    if (jobManagerEnabled) {
+    if (isSqlReady()) {
       return jobManagerSql.getFailedReindexingJobsCount();
     }
 
@@ -994,7 +1121,7 @@ public class JobManager extends BaseLockssDaemonManager implements
    */
   public List<Map<String, Object>> getFinishedReindexingJobsBefore(
       int maxJobCount, long beforeTime) throws DbException {
-    if (jobManagerEnabled) {
+    if (isSqlReady()) {
       return jobManagerSql.getFinishedReindexingJobsBefore(maxJobCount,
 	  beforeTime);
     }
@@ -1016,7 +1143,7 @@ public class JobManager extends BaseLockssDaemonManager implements
    */
   public List<Map<String, Object>> getFailedReindexingJobsBefore(
       int maxJobCount, long beforeTime) throws DbException {
-    if (jobManagerEnabled) {
+    if (isSqlReady()) {
       return jobManagerSql.getFailedReindexingJobsBefore(maxJobCount,
 	  beforeTime);
     }
@@ -1026,13 +1153,31 @@ public class JobManager extends BaseLockssDaemonManager implements
 
   /**
    * Provides an indication of whether a job involves a full reindexing task.
-   * 
+   * Both JOB_TYPE_PUT_AU (full reindex of an existing AU) and
+   * JOB_TYPE_PUT_NEW_AU (initial indexing of a new AU) are full reindexes
+   * — neither is incremental.
+   *
    * @param jobTypeSeq An Long with the job type database identifier.
    * @return a boolean with <code>true</code> if the job involves a full
    *         reindexing task, <code>false</code> otherwise.
    */
   public boolean isFullReindexJob(Long jobTypeSeq) {
-    return jobManagerSql.getJobTypeSeqByName().get(JOB_TYPE_PUT_AU)
-	.equals(jobTypeSeq);
+    Map<String, Long> byName = jobManagerSql.getJobTypeSeqByName();
+    return byName.get(JOB_TYPE_PUT_AU).equals(jobTypeSeq)
+        || byName.get(JOB_TYPE_PUT_NEW_AU).equals(jobTypeSeq);
+  }
+
+  /**
+   * Provides an indication of whether a job was created for a new (never-
+   * yet-indexed) AU — i.e. its type is JOB_TYPE_PUT_NEW_AU. Used by the
+   * status display to render the "new" badge; runtime processing treats
+   * JOB_TYPE_PUT_NEW_AU identically to JOB_TYPE_PUT_AU.
+   *
+   * @param jobTypeSeq An Long with the job type database identifier.
+   * @return true iff jobTypeSeq corresponds to JOB_TYPE_PUT_NEW_AU.
+   */
+  public boolean isNewAuJob(Long jobTypeSeq) {
+    return jobManagerSql.getJobTypeSeqByName().get(JOB_TYPE_PUT_NEW_AU)
+        .equals(jobTypeSeq);
   }
 }

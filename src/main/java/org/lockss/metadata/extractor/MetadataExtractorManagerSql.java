@@ -51,6 +51,18 @@ import org.lockss.util.Logger;
 
 /**
  * The MetadataExtractorManager SQL code executor.
+ *
+ * <p><b>pending_au compatibility surface:</b> the {@code pending_au} table
+ * and the queries/methods that read or write to it (e.g.
+ * {@link #removeFromPendingAus}, the INSERT_*_PENDING_AU_QUERY constants,
+ * the FIND_PENDING_AUS_*_QUERY constants) are intentionally retained even
+ * though the JobManager queue is now the sole runtime scheduling path. They
+ * are kept so that LOCKSS v1.x deployments can co-exist with this v2.x
+ * service during a 1.x→2.x upgrade. Every site in this class that exists
+ * solely for that compatibility is flagged with the marker
+ * {@code TODO(pending_au-removal)} and should be removed when the
+ * {@code pending_au} table itself is dropped. Grep for that marker to find
+ * every site.
  */
 public class MetadataExtractorManagerSql {
   private static final Logger log =
@@ -58,6 +70,7 @@ public class MetadataExtractorManagerSql {
 
   private static final int UNKNOWN_VERSION = -1;
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   // Query to count enabled pending AUs.
   private static final String COUNT_ENABLED_PENDING_AUS_QUERY = "select "
       + "count(*) from " + PENDING_AU_TABLE
@@ -87,35 +100,7 @@ public class MetadataExtractorManagerSql {
     + " and " + AU_MD_TABLE + "." + AU_MD_SEQ_COLUMN
     + "=" + MD_ITEM_TABLE + "." + AU_MD_SEQ_COLUMN;
   
-  // Query to find enabled pending AUs sorted by priority. Subsitute "true"
-  // to prioritize indexing new AUs ahead of reindexing existing ones, "false"
-  // to index in the order they were added to the queue. AUs with a priority of
-  // zero (requested from the Debug Panel) are always sorted first.
-  private static final String FIND_PRIORITIZED_ENABLED_PENDING_AUS_QUERY =
-        "select "
-      +       PENDING_AU_TABLE + "." + PLUGIN_ID_COLUMN
-      + "," + PENDING_AU_TABLE + "." + AU_KEY_COLUMN
-      + "," + PENDING_AU_TABLE + "." + PRIORITY_COLUMN
-      + ",(" + AU_MD_TABLE + "." + AU_SEQ_COLUMN + " is null) as "
-      + ISNEW_COLUMN
-      + "," + PENDING_AU_TABLE + "." + FULLY_REINDEX_COLUMN
-      + " from " + PENDING_AU_TABLE
-      + "   left join " + PLUGIN_TABLE
-      + "     on " + PLUGIN_TABLE + "." + PLUGIN_ID_COLUMN
-      + "        = " + PENDING_AU_TABLE + "." + PLUGIN_ID_COLUMN
-      + "   left join " + AU_TABLE
-      + "     on " + AU_TABLE + "." + AU_KEY_COLUMN
-      + "        = " + PENDING_AU_TABLE + "." + AU_KEY_COLUMN
-      + "    and " + AU_TABLE + "." + PLUGIN_SEQ_COLUMN
-      + "        = " + PLUGIN_TABLE + "." + PLUGIN_SEQ_COLUMN
-      + "   left join " + AU_MD_TABLE
-      + "     on " + AU_MD_TABLE + "." + AU_SEQ_COLUMN
-      + "        = " + AU_TABLE + "." + AU_SEQ_COLUMN
-      + " where " + PRIORITY_COLUMN + " >= 0"
-      + " order by (" + PENDING_AU_TABLE + "." + PRIORITY_COLUMN + " > 0),"
-      + "(true = ? and " + AU_MD_TABLE + "." + AU_SEQ_COLUMN + " is not null)," 
-      + PENDING_AU_TABLE + "." + PRIORITY_COLUMN;
-
+  // TODO(pending_au-removal): remove with the pending_au table.
   // Query to delete a pending AU by its key and plugin identifier.
   private static final String DELETE_PENDING_AU_QUERY = "delete from "
       + PENDING_AU_TABLE
@@ -159,6 +144,7 @@ public class MetadataExtractorManagerSql {
       + " set " + EXTRACT_TIME_COLUMN + " = ?"
       + " where " + AU_MD_SEQ_COLUMN + " = ?";
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   // Query to delete a disabled pending AU by its key and plugin identifier.
   private static final String DELETE_DISABLED_PENDING_AU_QUERY = "delete from "
       + PENDING_AU_TABLE
@@ -166,6 +152,7 @@ public class MetadataExtractorManagerSql {
       + " and " + AU_KEY_COLUMN + " = ?"
       + " and " + PRIORITY_COLUMN + " < 0";
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   // Query to add an enabled pending AU at the bottom of the current priority
   // list.
   private static final String INSERT_ENABLED_PENDING_AU_QUERY = "insert into "
@@ -179,6 +166,7 @@ public class MetadataExtractorManagerSql {
       + " from " + PENDING_AU_TABLE
       + " where " + PRIORITY_COLUMN + " >= 0),?)";
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   // Query to add an enabled pending AU at the bottom of the current priority
   // list using MySQL.
   private static final String INSERT_ENABLED_PENDING_AU_MYSQL_QUERY = "insert "
@@ -193,6 +181,7 @@ public class MetadataExtractorManagerSql {
       + " from " + PENDING_AU_TABLE
       + " where " + PRIORITY_COLUMN + " >= 0) as temp_pau_table),?)";
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   // Query to add an enabled pending AU at the top of the current priority list.
   private static final String INSERT_HIGHEST_PRIORITY_PENDING_AU_QUERY =
       "insert into "
@@ -203,6 +192,7 @@ public class MetadataExtractorManagerSql {
       + "," + FULLY_REINDEX_COLUMN
       + ") values (?,?,0,?)";
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   // Query to find a pending AU by its key and plugin identifier.
   private static final String FIND_PENDING_AU_QUERY = "select "
       + PLUGIN_ID_COLUMN
@@ -223,13 +213,15 @@ public class MetadataExtractorManagerSql {
       + " and p." + PLUGIN_ID_COLUMN + " = ?"
       + " and a." + AU_KEY_COLUMN + " = ?";
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   // Query to find the full reindexing flag of an Archival Unit.
   private static final String FIND_AU_FULL_REINDEXING_BY_AU_QUERY = "select "
       + FULLY_REINDEX_COLUMN
       + " from " + PENDING_AU_TABLE
       + " where " + PLUGIN_ID_COLUMN + " = ?"
       + " and " + AU_KEY_COLUMN + " = ?";
-  
+
+  // TODO(pending_au-removal): remove with the pending_au table.
   // Query to update the full reindexing of an Archival Unit.
   private static final String UPDATE_AU_FULL_REINDEXING_QUERY = "update "
       + PENDING_AU_TABLE
@@ -255,6 +247,7 @@ public class MetadataExtractorManagerSql {
       + "," + PLATFORM_NAME_COLUMN
       + ") values (default,?)";
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   // Query to add a disabled pending AU.
   private static final String INSERT_DISABLED_PENDING_AU_QUERY = "insert into "
       + PENDING_AU_TABLE
@@ -263,6 +256,7 @@ public class MetadataExtractorManagerSql {
       + "," + PRIORITY_COLUMN
       + ") values (?,?," + MIN_INDEX_PRIORITY + ")";
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   // Query to add a pending AU with failed indexing.
   private static final String INSERT_FAILED_INDEXING_PENDING_AU_QUERY = "insert"
       + " into "
@@ -271,7 +265,8 @@ public class MetadataExtractorManagerSql {
       + "," + AU_KEY_COLUMN
       + "," + PRIORITY_COLUMN
       + ") values (?,?," + FAILED_INDEX_PRIORITY + ")";
-  
+
+  // TODO(pending_au-removal): remove with the pending_au table.
   // Query to find pending AUs with a given priority.
   private static final String FIND_PENDING_AUS_WITH_PRIORITY_QUERY =
       "select "
@@ -348,6 +343,8 @@ public class MetadataExtractorManagerSql {
       + " and " + MD_ITEM_SEQ_COLUMN + " = ?"
       + " and " + PARENT_SEQ_COLUMN + " is not null";
 
+
+
   private DbManager dbManager;
   private MetadataExtractorManager mdxManager;
 
@@ -365,9 +362,10 @@ public class MetadataExtractorManagerSql {
     this.mdxManager = mdxManager;
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   /**
    * Provides the number of enabled pending AUs.
-   * 
+   *
    * @return a long with the number of enabled pending AUs.
    * @throws DbException
    *           if any problem occurred accessing the database.
@@ -390,9 +388,10 @@ public class MetadataExtractorManagerSql {
     return rowCount;
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   /**
    * Provides the number of enabled pending AUs.
-   * 
+   *
    * @param conn
    *          A Connection with the database connection to be used.
    * @return a long with the number of enabled pending AUs.
@@ -609,97 +608,10 @@ public class MetadataExtractorManagerSql {
     return rowCount;
   }
 
-  /**
-   * Provides a list of AuIds that require reindexing sorted by priority.
-   * 
-   * @param conn
-   *          A Connection with the database connection to be used.
-   * @param maxAuIds
-   *          An int with the maximum number of AuIds to return.
-   * @param prioritizeIndexingNewAus
-   *          A boolean with the indication of whether to prioritize new
-   *          Archival Units for indexing purposes.
-   * @return a List<String> with the list of AuIds that require reindexing
-   *         sorted by priority.
-   */
-  List<PrioritizedAuId> getPrioritizedAuIdsToReindex(Connection conn,
-      int maxAuIds, boolean prioritizeIndexingNewAus) {
-    final String DEBUG_HEADER = "getPrioritizedAuIdsToReindex(): ";
-    if (log.isDebug2()) {
-      log.debug2(DEBUG_HEADER + "maxAuIds = " + maxAuIds);
-      log.debug2(DEBUG_HEADER + "prioritizeIndexingNewAus = "
-	  + prioritizeIndexingNewAus);
-    }
-
-    ArrayList<PrioritizedAuId> auIds = new ArrayList<PrioritizedAuId>();
-
-    PreparedStatement selectPendingAus = null;
-    ResultSet results = null;
-    String sql = FIND_PRIORITIZED_ENABLED_PENDING_AUS_QUERY;
-      
-    try {
-      selectPendingAus = dbManager.prepareStatement(conn, sql);
-      selectPendingAus.setBoolean(1, prioritizeIndexingNewAus);
-      results = dbManager.executeQuery(selectPendingAus);
-
-      while ((auIds.size() < maxAuIds) && results.next()) {
-	String pluginId = results.getString(PLUGIN_ID_COLUMN);
-	if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginId = " + pluginId);
-	String auKey = results.getString(AU_KEY_COLUMN);
-	if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auKey = " + auKey);
-	String auId = PluginManager.generateAuId(pluginId, auKey);
-	if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auId = " + auId);
-
-	if (mdxManager.isEligibleForReindexing(auId)) {
-	  if (!mdxManager.activeReindexingTasks.containsKey(auId)) {
-	    PrioritizedAuId auToReindex = new PrioritizedAuId();
-	    auToReindex.auId = auId;
-
-	    long priority = results.getLong(PRIORITY_COLUMN);
-	    if (log.isDebug3())
-	      log.debug3(DEBUG_HEADER + "priority = " + priority);
-	    auToReindex.priority = priority;
-
-	    boolean isNew = results.getBoolean(ISNEW_COLUMN);
-	    if (log.isDebug3()) log.debug3(DEBUG_HEADER + "isNew = " + isNew);
-	    auToReindex.isNew = isNew;
-
-	    boolean needFullReindex = results.getBoolean(FULLY_REINDEX_COLUMN);
-	    if (log.isDebug3())
-	      log.debug3(DEBUG_HEADER + "needFullReindex = " + needFullReindex);
-	    auToReindex.needFullReindex = needFullReindex;
-
-	    auIds.add(auToReindex);
-	    if (log.isDebug3()) log.debug3(DEBUG_HEADER + "Added auId = " + auId
-		+ " to reindex list");
-	  }
-	}
-      }
-    } catch (SQLException sqle) {
-      String message = "Cannot identify the enabled pending AUs";
-      log.error(message, sqle);
-      log.error("maxAuIds = " + maxAuIds);
-      log.error("SQL = '" + sql + "'.");
-      log.error("prioritizeIndexingNewAus = " + prioritizeIndexingNewAus);
-    } catch (DbException dbe) {
-      String message = "Cannot identify the enabled pending AUs";
-      log.error(message, dbe);
-      log.error("SQL = '" + sql + "'.");
-      log.error("prioritizeIndexingNewAus = " + prioritizeIndexingNewAus);
-    } finally {
-      DbManager.safeCloseResultSet(results);
-      DbManager.safeCloseStatement(selectPendingAus);
-    }
-
-    auIds.trimToSize();
-    if (log.isDebug2())
-      log.debug2(DEBUG_HEADER + "auIds.size() = " + auIds.size());
-    return auIds;
-  }
-
+  // TODO(pending_au-removal): remove with the pending_au table.
   /**
    * Removes an AU from the pending Aus table.
-   * 
+   *
    * @param conn
    *          A Connection with the database connection to be used.
    * @param auId
@@ -840,6 +752,21 @@ public class MetadataExtractorManagerSql {
   }
 
   /**
+   * Indicates whether the given AU has no metadata stored yet (i.e. is "new"
+   * from the metadata-indexer's perspective). Opens and closes its own
+   * connection.
+   */
+  boolean isAuNew(String auId) throws DbException {
+    Connection conn = null;
+    try {
+      conn = dbManager.getConnection();
+      return findAuMdByAuId(conn, auId) == null;
+    } finally {
+      DbManager.safeRollbackAndClose(conn);
+    }
+  }
+
+  /**
    * Removes an AU.
    * 
    * @param conn
@@ -976,9 +903,10 @@ public class MetadataExtractorManagerSql {
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   /**
    * Removes an AU with disabled indexing from the table of pending AUs.
-   * 
+   *
    * @param conn
    *          A Connection with the database connection to be used.
    * @param auId
@@ -1018,9 +946,10 @@ public class MetadataExtractorManagerSql {
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   /**
    * Provides the prepared statement used to insert pending AUs.
-   * 
+   *
    * @param conn
    *          A Connection with the database connection to be used.
    * @return a PreparedStatement with the prepared statement used to insert
@@ -1041,10 +970,11 @@ public class MetadataExtractorManagerSql {
     return dbManager.prepareStatement(conn, INSERT_ENABLED_PENDING_AU_QUERY);
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   /**
    * Provides the prepared statement used to insert pending AUs with the
    * highest priority.
-   * 
+   *
    * @param conn
    *          A Connection with the database connection to be used.
    * @return a PreparedStatement with the prepared statement used to insert
@@ -1060,9 +990,10 @@ public class MetadataExtractorManagerSql {
 	INSERT_HIGHEST_PRIORITY_PENDING_AU_QUERY);
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   /**
    * Provides an indication of whether an Archival Unit is pending reindexing.
-   * 
+   *
    * @param conn
    *          A Connection with the database connection to be used.
    * @param pluginKey
@@ -1110,10 +1041,11 @@ public class MetadataExtractorManagerSql {
     return result;
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   /**
    * Adds an Archival Unit to the batch of Archival Units to be added to the
    * pending Archival Units table in the database.
-   * 
+   *
    * @param pluginKey
    *          A String with the plugin identifier.
    * @param auKey
@@ -1136,10 +1068,11 @@ public class MetadataExtractorManagerSql {
     insertPendingAuBatchStatement.addBatch();
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   /**
    * Adds a batch of Archival Units to the pending Archival Units table in the
    * database.
-   * 
+   *
    * @param insertPendingAuBatchStatement
    *          A PreparedStatement with the SQL staement used to add Archival
    *          Units to the pending Archival Units table in the database.
@@ -1202,8 +1135,17 @@ public class MetadataExtractorManagerSql {
    */
   int getAuMetadataVersion(Connection conn, ArchivalUnit au)
       throws DbException {
+    return getAuMetadataVersion(conn, au.getAuId());
+  }
+
+  /**
+   * auId-based overload of {@link #getAuMetadataVersion(Connection,
+   * ArchivalUnit)}. Used by the scan path so unstarted AUs can be evaluated
+   * without an {@link ArchivalUnit} instance.
+   */
+  int getAuMetadataVersion(Connection conn, String auId) throws DbException {
     final String DEBUG_HEADER = "getAuMetadataVersion(): ";
-    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "au = " + au);
+    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "auId = " + auId);
 
     String pluginKey = null;
     String auKey = null;
@@ -1212,7 +1154,6 @@ public class MetadataExtractorManagerSql {
     ResultSet resultSet = null;
 
     try {
-      String auId = au.getAuId();
       pluginKey = PluginManager.pluginKeyFromAuId(auId);
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginKey() = " + pluginKey);
 
@@ -1232,7 +1173,7 @@ public class MetadataExtractorManagerSql {
     } catch (SQLException sqle) {
       String message = "Cannot get AU metadata version";
       log.error(message, sqle);
-      log.error("au = '" + au + "'.");
+      log.error("auId = '" + auId + "'.");
       log.error("SQL = '" + FIND_AU_METADATA_VERSION_QUERY + "'.");
       log.error("pluginKey = '" + pluginKey + "'.");
       log.error("auKey = '" + auKey + "'.");
@@ -1246,10 +1187,12 @@ public class MetadataExtractorManagerSql {
     return version;
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table (queries the
+  // FULLY_REINDEX_COLUMN of pending_au).
   /**
    * Provides an indication of whether an Archival Unit requires full
    * reindexing.
-   * 
+   *
    * @param conn
    *          A Connection with the database connection to be used.
    * @param au
@@ -1305,6 +1248,8 @@ public class MetadataExtractorManagerSql {
     return fullReindexing;
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table (updates the
+  // FULLY_REINDEX_COLUMN of pending_au).
   /**
    * Sets whether AU stored in the database requires full reindexing.
    * @param conn
@@ -1371,8 +1316,17 @@ public class MetadataExtractorManagerSql {
    */
   long getAuExtractionTime(Connection conn, ArchivalUnit au)
       throws DbException {
+    return getAuExtractionTime(conn, au.getAuId());
+  }
+
+  /**
+   * auId-based overload of {@link #getAuExtractionTime(Connection,
+   * ArchivalUnit)}. Used by the scan path so unstarted AUs can be evaluated
+   * without an {@link ArchivalUnit} instance.
+   */
+  long getAuExtractionTime(Connection conn, String auId) throws DbException {
     final String DEBUG_HEADER = "getAuExtractionTime(): ";
-    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "au = " + au);
+    if (log.isDebug2()) log.debug2(DEBUG_HEADER + "auId = " + auId);
 
     String pluginKey = null;
     String auKey = null;
@@ -1381,7 +1335,6 @@ public class MetadataExtractorManagerSql {
     ResultSet resultSet = null;
 
     try {
-      String auId = au.getAuId();
       pluginKey = PluginManager.pluginKeyFromAuId(auId);
       if (log.isDebug3()) log.debug3(DEBUG_HEADER + "pluginKey() = " + pluginKey);
 
@@ -1402,7 +1355,7 @@ public class MetadataExtractorManagerSql {
     } catch (SQLException sqle) {
       String message = "Cannot get AU extraction time";
       log.error(message, sqle);
-      log.error("au = '" + au + "'.");
+      log.error("auId = '" + auId + "'.");
       log.error("SQL = '" + FIND_AU_MD_EXTRACT_TIME_BY_AU_QUERY + "'.");
       log.error("pluginKey = '" + pluginKey + "'.");
       log.error("auKey = '" + auKey + "'.");
@@ -1461,9 +1414,11 @@ public class MetadataExtractorManagerSql {
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table. Replaced
+  // operationally by JOB_STATUS_FAILED rows in the job table.
   /**
    * Adds an AU with failed indexing to the list of pending AUs to reindex.
-   * 
+   *
    * @param conn
    *          A Connection with the database connection to be used.
    * @param auId
@@ -1507,9 +1462,10 @@ public class MetadataExtractorManagerSql {
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   /**
    * Provides the identifiers of pending Archival Units with a given priority.
-   * 
+   *
    * @param conn
    *          A Connection with the database connection to be used.
    * @param priority
@@ -2023,4 +1979,5 @@ public class MetadataExtractorManagerSql {
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "auMdSeq = " + auMdSeq);
     return auMdSeq;
   }
+
 }

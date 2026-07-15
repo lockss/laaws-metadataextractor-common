@@ -173,6 +173,8 @@ public class TestAuMetadataRecorder extends LockssTestCase {
    * @throws Exception
    */
   public void testAll() throws Exception {
+    // run first to prevent collision with previous inserted items w/same access url
+    runRecordNoJournalTitleNoISSNJournal();
     runRecordJournal1();
     runRecordBook1();
     runRecordBookSeries1();
@@ -180,7 +182,6 @@ public class TestAuMetadataRecorder extends LockssTestCase {
     runRecordUnknownPublisher2();
     runRecordUnknownPublisher3();
     runRecordUnknownPublisher4();
-    runRecordNoJournalTitleNoISSNJournal();
     runNormalizeMetadataTest();
     runRecordMultipleJournalsAndPublishers();
     runValidateMdItemTypeHierarchyTest();
@@ -1711,7 +1712,6 @@ public class TestAuMetadataRecorder extends LockssTestCase {
     int version = 2;
     /**
      * Returns the article iterator factory for the mime type, if any
-     * @param contentType the content type
      * @return the ArticleIteratorFactory
      */
     @Override

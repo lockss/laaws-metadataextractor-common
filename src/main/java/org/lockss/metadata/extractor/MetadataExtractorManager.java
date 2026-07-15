@@ -51,11 +51,14 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+
 import org.lockss.app.BaseLockssManager;
 import org.lockss.app.ConfigurableManager;
 import org.lockss.app.LockssApp;
 import org.lockss.config.Configuration;
 import org.lockss.config.Configuration.Differences;
+import org.lockss.config.TdbUtil;
 import org.lockss.daemon.LockssRunnable;
 import org.lockss.daemon.status.StatusService;
 import org.lockss.db.DbException;
@@ -83,6 +86,7 @@ import org.lockss.plugin.AuUtil;
 import org.lockss.plugin.Plugin;
 import org.lockss.plugin.Plugin.Feature;
 import org.lockss.plugin.PluginManager;
+import org.lockss.plugin.base.BasePlugin;
 import org.lockss.scheduler.Schedule;
 import org.lockss.state.AuStateBean;
 import org.lockss.state.StateManager;
@@ -96,6 +100,14 @@ import org.lockss.util.os.PlatformUtil;
 
 /**
  * Implementation of a manager for extracting metadata from Archival Units.
+ *
+ * <p><b>pending_au compatibility surface:</b> a number of fields, methods,
+ * and constants in this class exist only to keep the legacy
+ * {@code pending_au} table populated for LOCKSS v1.x ↔ v2.x migration
+ * coexistence. They are individually flagged with the marker
+ * {@code TODO(pending_au-removal)} and should all be removed when the
+ * {@code pending_au} table itself is dropped. Grep for that marker to find
+ * every site.
  */
 public class MetadataExtractorManager extends BaseLockssManager implements
     ConfigurableManager {
@@ -193,24 +205,50 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    */
   public static final boolean DEFAULT_PRIORTIZE_INDEXING_NEW_AUS = true;
 
-  /** Map of AUID regexp to priority.  If set, AUs are assigned the
-   * corresponding priority of the first regexp that their AUID matches.
-   * Priority must be an integer; priorities <= -10000 mean "do not index
-   * matching AUs", priorities <= -20000 mean "abort running indexes of
-   * matching AUs". (Priorities are not yet implemented - only "do not
-   * index" and "abort" are supported.)  */
+  /**
+   * Map of AUID regexp to priority. If set, AUs are assigned the corresponding
+   * priority of the first regexp that their AUID matches; the priority value
+   * is applied verbatim to the job row at insert time and the claim order is
+   * {@code priority DESC, job_seq ASC} — so larger values are claimed sooner.
+   *
+   * <p>Threshold semantics:
+   * <ul>
+   *   <li>Priorities &le; {@link #MIN_INDEX_PRIORITY} (-10000) mean "do not
+   *       index matching AUs" — the AU is excluded from insertion (see
+   *       {@link #isEligibleForReindexing(String)}).</li>
+   *   <li>Priorities &le; {@link #ABORT_INDEX_PRIORITY} (-20000) additionally
+   *       cause any running indexing tasks for matching AUs to be aborted
+   *       (see {@code processAbortPriorities}).</li>
+   *   <li>All other values (positive or negative) are valid queue priorities
+   *       and are applied to the job row at insertion.</li>
+   * </ul>
+   *
+   * <p>AUs not matched by any pattern fall through to the new-vs-existing
+   * default: new AUs default to {@link JobManager#NEW_AU_JOB_PRIORITY},
+   * existing AUs default to {@link JobManager#NORMAL_JOB_PRIORITY}.
+   */
   static final String PARAM_INDEX_PRIORITY_AUID_MAP =
     PREFIX + "indexPriorityAuidMap";
   static final List<String> DEFAULT_INDEX_PRIORITY_AUID_MAP = null;
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   static final int FAILED_INDEX_PRIORITY = -1000;
+  /**
+   * Lowest valid index priority. AUs whose {@code indexPriorityAuidMap}
+   * match is &le; this value are excluded from indexing entirely (see
+   * {@link #isEligibleForReindexing(String)}). All other map values
+   * (including negatives strictly greater than this threshold) are valid
+   * queue priorities.
+   */
   static final int MIN_INDEX_PRIORITY = -10000;
   private static final int ABORT_INDEX_PRIORITY = -20000;
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   /** Maximum number of AUs to be re-indexed to batch before writing them to the
    * database. */
   public static final String PARAM_MAX_PENDING_TO_REINDEX_AU_BATCH_SIZE =
     PREFIX + "maxPendingToReindexAuBatchSize";
+  // TODO(pending_au-removal): remove with the pending_au table.
   private static final int DEFAULT_MAX_PENDING_TO_REINDEX_AU_BATCH_SIZE = 1000;
 
   /**
@@ -220,12 +258,22 @@ public class MetadataExtractorManager extends BaseLockssManager implements
   static final List<String> DEFAULT_MANDATORY_FIELDS = null;
 
   /**
-   * Determines whether metadata indexing happens only "on-demand". Set this to
-   * <code>true</code> for the metadata extraction via REST web service.
+   * Maximum number of times a failed metadata extraction job will be retried
+   * before being abandoned. Retry counters are kept in memory and reset on
+   * service restart.
    */
-  static final String PARAM_ON_DEMAND_METADATA_EXTRACTION_ONLY = PREFIX
-      + "onDemandMetadataExtractionOnly";
-  static final boolean DEFAULT_ON_DEMAND_METADATA_EXTRACTION_ONLY = false;
+  public static final String PARAM_MAX_INDEXING_RETRIES = PREFIX
+      + "maxIndexingRetries";
+  public static final int DEFAULT_MAX_INDEXING_RETRIES = 3;
+
+  /**
+   * Maximum number of FAILED job rows retained per AU. When a new failure
+   * pushes the count above this cap, the oldest FAILED rows for that AU are
+   * pruned. Set to a high value if you want to keep full failure history.
+   */
+  public static final String PARAM_MAX_FAILED_JOB_ROWS_PER_AU = PREFIX
+      + "maxFailedJobRowsPerAu";
+  public static final int DEFAULT_MAX_FAILED_JOB_ROWS_PER_AU = 2;
 
   /**
    * The Metadata REST web service parameters.
@@ -306,6 +354,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
   // (-1 indicates needs recalculation)
   private long metadataProviderCount = -1;
   
+  // TODO(pending_au-removal): remove with the pending_au table.
   // The number of AUs pending to be reindexed.
   private long pendingAusCount = 0;
 
@@ -336,9 +385,11 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 
   private PatternIntMap indexPriorityAuidMap;
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   private int maxPendingAuBatchSize =
       DEFAULT_MAX_PENDING_TO_REINDEX_AU_BATCH_SIZE;
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   private int pendingAuBatchCurrentSize = 0;
 
   /** enumeration status for reindexing tasks */
@@ -366,8 +417,11 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 
   private List<String> mandatoryMetadataFields = DEFAULT_MANDATORY_FIELDS;
 
-  private boolean onDemandMetadataExtractionOnly =
-      DEFAULT_ON_DEMAND_METADATA_EXTRACTION_ONLY;
+  private int maxIndexingRetries = DEFAULT_MAX_INDEXING_RETRIES;
+
+  private int maxFailedJobRowsPerAu = DEFAULT_MAX_FAILED_JOB_ROWS_PER_AU;
+
+  private final Map<String, Integer> retryCountByAuId = new ConcurrentHashMap<>();
 
   private long metadataExtractionCheckInterval =
       DEFAULT_METADATA_EXTRACTION_CHECK_INTERVAL;
@@ -416,8 +470,10 @@ public class MetadataExtractorManager extends BaseLockssManager implements
       return;
     }
 
-    // Initialize the counts of articles and pending AUs from database.
+    // Initialize the in-memory cached counts of articles and pending AUs from database.
     try {
+      // TODO(pending_au-removal): remove pendingAusCount init with the
+      // pending_au table.
       pendingAusCount = mdxManagerSql.getEnabledPendingAusCount();
       metadataArticleCount = mdxManagerSql.getArticleCount();
       metadataPublisherCount = mdxManagerSql.getPublisherCount();
@@ -478,17 +534,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
           config.getBoolean(PARAM_PRIORTIZE_INDEXING_NEW_AUS,
                             DEFAULT_PRIORTIZE_INDEXING_NEW_AUS);
 
-      if (changedKeys.contains(PARAM_ON_DEMAND_METADATA_EXTRACTION_ONLY)) {
-	onDemandMetadataExtractionOnly =
-	    config.getBoolean(PARAM_ON_DEMAND_METADATA_EXTRACTION_ONLY,
-		DEFAULT_ON_DEMAND_METADATA_EXTRACTION_ONLY);
-
-	if (log.isDebug3())
-	  log.debug3("onDemandMetadataExtractionOnly = "
-	      + onDemandMetadataExtractionOnly);
-      }
-
-      if (isAppInited() && !onDemandMetadataExtractionOnly) {
+      if (isAppInited()) {
 	metadataExtractionCheckInterval =
 	    config.getLong(PARAM_METADATA_EXTRACTION_CHECK_INTERVAL,
 		DEFAULT_METADATA_EXTRACTION_CHECK_INTERVAL);
@@ -496,6 +542,12 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 	  config.getBoolean(PARAM_INDEXING_ENABLED, DEFAULT_INDEXING_ENABLED);
 	setIndexingEnabled(doEnable);
       }
+
+      maxIndexingRetries = config.getInt(PARAM_MAX_INDEXING_RETRIES,
+	  DEFAULT_MAX_INDEXING_RETRIES);
+
+      maxFailedJobRowsPerAu = config.getInt(PARAM_MAX_FAILED_JOB_ROWS_PER_AU,
+	  DEFAULT_MAX_FAILED_JOB_ROWS_PER_AU);
 
       if (changedKeys.contains(PARAM_HISTORY_MAX)) {
 	int histSize = config.getInt(PARAM_HISTORY_MAX, DEFAULT_HISTORY_MAX);
@@ -507,15 +559,12 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 	    .getList(PARAM_INDEX_PRIORITY_AUID_MAP,
 		     DEFAULT_INDEX_PRIORITY_AUID_MAP)));
 
-	if (isAppInited() && !onDemandMetadataExtractionOnly) {
+	if (isAppInited()) {
 	  processAbortPriorities();
-	  // process queued AUs in case any are newly eligible if initialized.
-	  if (dbManager != null) {
-	    startReindexing();
-	  }
 	}
       }
 
+      // TODO(pending_au-removal): remove with the pending_au table.
       if (changedKeys.contains(PARAM_MAX_PENDING_TO_REINDEX_AU_BATCH_SIZE)) {
 	maxPendingAuBatchSize =
 	    config.getInt(PARAM_MAX_PENDING_TO_REINDEX_AU_BATCH_SIZE,
@@ -546,19 +595,15 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     // Start or stop reindexing if initialized.
     if (dbManager != null) {
       if (!reindexingEnabled && enable) {
-	if (everEnabled) {
-        // Start reindexing
-	  startReindexing();
-	} else {
-	  // start first-time startup thread (XXX needs to be periodic?)
-	  // This is used also in testing.
+	if (!everEnabled) {
+	  // Spawn the AuEventHandler / periodic scanner once; it feeds the
+	  // JobManager queue from this point on.
 	  startStarter();
 	  everEnabled = true;
 	}
-	reindexingEnabled = enable;
       } else if (reindexingEnabled && !enable) {
-        // Stop any pending reindexing operations
-        stopReindexing();
+	// Stop any pending reindexing operations.
+	stopReindexing();
       }
       reindexingEnabled = enable;
     }
@@ -632,31 +677,6 @@ public class MetadataExtractorManager extends BaseLockssManager implements
   }
 
   /**
-   * Ensures that as many reindexing tasks as possible are running if the
-   * manager is enabled.
-   * 
-   * @return an int with the number of reindexing tasks started.
-   */
-  private int startReindexing() {
-    final String DEBUG_HEADER = "startReindexing(): ";
-
-    Connection conn = null;
-    int count = 0;
-    try {
-      conn = dbManager.getConnection();
-      count = startReindexing(conn);
-      MetadataDbManager.commitOrRollback(conn, log);
-    } catch (DbException dbe) {
-      log.error("Cannot start reindexing", dbe);
-    } finally {
-      MetadataDbManager.safeRollbackAndClose(conn);
-    }
-
-    log.debug3(DEBUG_HEADER + "count = " + count);
-    return count;
-  }
-
-  /**
    * Stops any pending reindexing operations.
    */
   private void stopReindexing() {
@@ -698,173 +718,9 @@ public class MetadataExtractorManager extends BaseLockssManager implements
   }
 
   /**
-   * Ensures that as many re-indexing tasks as possible are running if the
-   * manager is enabled.
-   * 
-   * @param conn
-   *          A Connection with the database connection to be used.
-   * @return an int with the number of reindexing tasks started.
-   */
-  int startReindexing(Connection conn) {
-    final String DEBUG_HEADER = "startReindexing(): ";
-    if (log.isDebug2()) log.debug2("Starting...");
-
-    if (!isAppInited()) {
-      if (log.isDebug()) log.debug(DEBUG_HEADER
-	  + "Daemon not initialized: No reindexing tasks.");
-      return 0;
-    }
-
-    // Don't run reindexing tasks run if reindexing is disabled.
-    if (!reindexingEnabled) {
-      if (log.isDebug()) log.debug(DEBUG_HEADER
-	  + "Metadata manager reindexing is disabled: No reindexing tasks.");
-      return 0;
-    }
-
-    int reindexedTaskCount = 0;
-
-    synchronized (activeReindexingTasks) {
-      // Try to add more concurrent reindexing tasks as long as the maximum
-      // number of them is not reached.
-      while (activeReindexingTasks.size() < maxReindexingTasks) {
-	if (log.isDebug3()) {
-	  log.debug3("activeReindexingTasks.size() = "
-	      + activeReindexingTasks.size());
-	  log.debug3("maxReindexingTasks = " + maxReindexingTasks);
-	}
-        // Get the list of pending AUs to reindex.
-	List<PrioritizedAuId> auIdsToReindex = new ArrayList<PrioritizedAuId>();
-
-	if (pluginMgr != null) {
-	  auIdsToReindex = mdxManagerSql.getPrioritizedAuIdsToReindex(conn,
-	      maxReindexingTasks - activeReindexingTasks.size(),
-	      prioritizeIndexingNewAus);
-	  if (log.isDebug3()) log.debug3("auIdsToReindex.size() = "
-	      + auIdsToReindex.size());
-	}
-
-	// Nothing more to do if there are no pending AUs to reindex.
-        if (auIdsToReindex.isEmpty()) {
-          break;
-        }
-
-        // Loop through all the pending AUs. 
-        for (PrioritizedAuId auIdToReindex : auIdsToReindex) {
-	  if (log.isDebug3())
-	    log.debug3("auIdToReindex.auId = " + auIdToReindex.auId);
-
-          // Get the next pending AU.
-          ArchivalUnit au = pluginMgr.getAuFromId(auIdToReindex.auId);
-	  if (log.isDebug3()) log.debug3("au = " + au);
-
-          // Check whether it does not exist.
-          if (au == null) {
-	    // Yes: Cancel any running tasks associated with the AU and delete
-	    // the AU metadata.
-            try {
-              deleteAu(conn, auIdToReindex.auId);
-            } catch (DbException dbe) {
-	      log.error("Error removing AU for auId " + auIdToReindex.auId
-		  + " from the database", dbe);
-            }
-          } else {
-            // No: Get the metadata extractor.
-            ArticleMetadataExtractor ae = getMetadataExtractor(au);
-
-            // Check whether it does not exist.
-            if (ae == null) {
-	      // Yes: It shouldn't happen because it was checked before adding
-	      // the AU to the pending AUs list.
-	      log.debug(DEBUG_HEADER + "Not running reindexing task for AU '"
-		  + au.getName() + "' because it nas no metadata extractor");
-
-	      // Remove it from the table of pending AUs.
-              try {
-        	pendingAusCount =
-        	    mdxManagerSql.removeFromPendingAus(conn, au.getAuId());
-              } catch (DbException dbe) {
-                log.error("Error removing AU " + au.getName()
-                          + " from the table of pending AUs", dbe);
-                break;
-              }
-            } else {
-              // No: Schedule the pending AU.
-              if (log.isDebug3()) log.debug3(DEBUG_HEADER
-        	  + "Creating the reindexing task for AU: " + au.getName());
-              ReindexingTask task = new ReindexingTask(au, ae);
-
-              // Get the AU database identifier, if any.
-              Long auSeq = null;
-
-              try {
-        	auSeq = findAuSeq(conn, au.getAuId());
-        	if (log.isDebug3())
-        	  log.debug3(DEBUG_HEADER + "auSeq = " + auSeq);
-              } catch (DbException dbe) {
-                log.error("Error trying to locate in the database AU "
-                    + au.getName(), dbe);
-                break;
-              }
-
-              task.setNewAu(auSeq == null);
-
-              if (auSeq != null) {
-                // Only allow incremental extraction if not doing full reindex
-                boolean fullReindex = true;
-
-        	try {
-        	  fullReindex = mdxManagerSql.needAuFullReindexing(conn, au);
-        	  if (log.isDebug3())
-        	    log.debug3(DEBUG_HEADER + "fullReindex = " + fullReindex);
-                } catch (DbException dbe) {
-                  log.warning("Error getting from the database the full "
-                      + "re-indexing flag for AU " + au.getName()
-                      + ": Doing full re-index", dbe);
-                }
-
-        	if (fullReindex) {
-        	  task.setFullReindex(fullReindex);
-        	} else {
-        	  long lastExtractTime = 0;
-
-        	  try {
-        	    lastExtractTime =
-        		mdxManagerSql.getAuExtractionTime(conn, au);
-        	    if (log.isDebug3()) log.debug3(DEBUG_HEADER
-        		+ "lastExtractTime = " + lastExtractTime);
-        	  } catch (DbException dbe) {
-        	    log.warning("Error getting the last extraction time for AU "
-        		+ au.getName() + ": Doing a full re-index", dbe);
-        	  }
-
-        	  task.setLastExtractTime(lastExtractTime);
-        	}
-              }
-
-              activeReindexingTasks.put(au.getAuId(), task);
-
-              // Add the reindexing task to the history; limit history list
-              // size.
-              addToIndexingTaskHistory(task);
-
-	      log.debug(DEBUG_HEADER + "Running the reindexing task for AU: "
-		  + au.getName());
-              runReindexingTask(task);
-              reindexedTaskCount++;
-            }
-          }
-        }
-      }
-    }
-
-    log.debug(DEBUG_HEADER + "Started " + reindexedTaskCount
-              + " AU reindexing tasks");
-    return reindexedTaskCount;
-  }
-
-  /**
-   * This class returns the information about an AU to reindex.
+   * Display-only view of an AU awaiting reindexing. Populated from the
+   * JobManager queue by {@link #getPendingReindexingAus()}; consumed by the
+   * status table accessor.
    */
   public static class PrioritizedAuId {
     /**
@@ -874,22 +730,6 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     long priority;
     boolean isNew;
     boolean needFullReindex;
-  }
-  
-  /**
-   * Provides a list of AuIds that require reindexing sorted by priority.
-   * 
-   * @param conn
-   *          A Connection with the database connection to be used.
-   * @param maxAuIds
-   *          An int with the maximum number of AuIds to return.
-   * @return a List<String> with the list of AuIds that require reindexing
-   *         sorted by priority.
-   */
-  List<PrioritizedAuId> getPrioritizedAuIdsToReindex(Connection conn,
-      int maxAuIds, boolean prioritizeIndexingNewAus) {
-    return mdxManagerSql.getPrioritizedAuIdsToReindex(conn, maxAuIds,
-	prioritizeIndexingNewAus);
   }
 
   /**
@@ -919,7 +759,9 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 
     mdxManagerSql.removeAu(conn, auId);
 
-    // Remove pending reindexing operations for this AU.
+    // TODO(pending_au-removal): remove this line (drain any v1.x-inserted
+    // pending_au row for the AU being deleted) with the pending_au table.
+    // The surrounding deleteAu method stays.
     pendingAusCount = mdxManagerSql.removeFromPendingAus(conn, auId);
 
     notifyDeletedAu(auId, articleCount);
@@ -992,16 +834,23 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 	    startWDog(WDOG_PARAM_INDEXER, WDOG_DEFAULT_INDEXER);
             triggerWDogOnExit(true);
 	    task.setWDog(this);
+            task.beginManualRun();
+            try {
+	      task.handleEvent(Schedule.EventType.START);
 
-	    task.handleEvent(Schedule.EventType.START);
+	      while (!task.isFinished()) {
+	        task.step(Integer.MAX_VALUE);
+	      }
 
-	    while (!task.isFinished()) {
-	      task.step(Integer.MAX_VALUE);
-	    }
-
-	    task.handleEvent(Schedule.EventType.FINISH);
-	    stopWDog();
-            triggerWDogOnExit(false);
+	      task.handleEvent(Schedule.EventType.FINISH);
+            } catch (Exception e) {
+              task.failManualRun(e);
+              throw e;
+            } finally {
+              task.endManualRun();
+	      stopWDog();
+              triggerWDogOnExit(false);
+            }
 	  }
 	};
 
@@ -1070,22 +919,80 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * @return a boolean with <code>true</code> if the Archival Unit is eligible
    *         for reindexing, <code>false</code> otherwise.
    */
-  boolean isEligibleForReindexing(ArchivalUnit au) {
+  public boolean isEligibleForReindexing(ArchivalUnit au) {
     return isEligibleForReindexing(au.getAuId());
   }
 
   /**
    * Provides an indication of whether an Archival Unit is eligible for
    * reindexing.
-   * 
+   *
+   * <p>Returns false if either:
+   * <ul>
+   *   <li>the AU is excluded by {@code indexPriorityAuidMap} — i.e. its
+   *       matched priority is &le; {@link #MIN_INDEX_PRIORITY}
+   *       ({@value #MIN_INDEX_PRIORITY}). All other map values (including
+   *       negative values strictly greater than {@code MIN_INDEX_PRIORITY})
+   *       are treated as valid queue priorities; they don't exclude the
+   *       AU.</li>
+   *   <li>the AU's {@link AuStateBean#isMetadataExtractionEnabled()} is
+   *       false (e.g. an operator disabled extraction for this AU via the
+   *       debug panel).</li>
+   * </ul>
+   *
    * @param auId
    *          A String with the Archival Unit identifier.
    * @return a boolean with <code>true</code> if the Archival Unit is eligible
    *         for reindexing, <code>false</code> otherwise.
    */
-  boolean isEligibleForReindexing(String auId) {
-    return indexPriorityAuidMap == null
-      || indexPriorityAuidMap.getMatch(auId, 0) >= 0;
+  public boolean isEligibleForReindexing(String auId) {
+    if (indexPriorityAuidMap != null
+        && indexPriorityAuidMap.getMatch(auId, 0) <= MIN_INDEX_PRIORITY) {
+      return false;
+    }
+    AuStateBean auStateBean = stateManager.getAuStateBean(auId);
+    if (auStateBean != null && !auStateBean.isMetadataExtractionEnabled()) {
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Sentinel returned by {@link PatternIntMap#getMatch(String, int)} when
+   * no pattern matches. Used by {@link #derivePriorityForAu(String)} to
+   * distinguish "no map match" from a real mapped value.
+   */
+  private static final int PRIORITY_MAP_NO_MATCH = Integer.MIN_VALUE;
+
+  /**
+   * Computes the queue priority to assign to a job for {@code auId} at
+   * insertion time.
+   *
+   * <ol>
+   *   <li>If {@code indexPriorityAuidMap} matches {@code auId}, return the
+   *       mapped value verbatim (any integer, positive or negative). The
+   *       map is the operator-facing override mechanism.</li>
+   *   <li>Else, if {@code prioritizeIndexingNewAus} is enabled and the AU
+   *       has no metadata yet, return
+   *       {@link JobManager#NEW_AU_JOB_PRIORITY}.</li>
+   *   <li>Else return {@link JobManager#NORMAL_JOB_PRIORITY}.</li>
+   * </ol>
+   *
+   * <p>Eligibility-blocking values (&le; {@link #MIN_INDEX_PRIORITY}) are
+   * filtered out earlier by {@link #isEligibleForReindexing(String)} —
+   * this method is only called for eligible AUs.
+   */
+  long derivePriorityForAu(String auId) throws DbException {
+    if (indexPriorityAuidMap != null) {
+      int mapped = indexPriorityAuidMap.getMatch(auId, PRIORITY_MAP_NO_MATCH);
+      if (mapped != PRIORITY_MAP_NO_MATCH) {
+        return mapped;
+      }
+    }
+    if (prioritizeIndexingNewAus && mdxManagerSql.isAuNew(auId)) {
+      return JobManager.NEW_AU_JOB_PRIORITY;
+    }
+    return JobManager.NORMAL_JOB_PRIORITY;
   }
 
   /**
@@ -1158,40 +1065,6 @@ public class MetadataExtractorManager extends BaseLockssManager implements
       }
     }
 
-    log.debug3("Pending tasks:");
-
-    try {
-      // Loop through all the pending tasks in the job database.
-      for (Map<String, Object> job : jobMgr.getNotStartedReindexingJobs(
-	  maxReindexingTaskHistory - taskCount)) {
-	// Add it to the list.
-	DisplayReindexingTask task = new DisplayReindexingTask();
-	String auId = PluginManager.generateAuId((
-	    String)job.get(PLUGIN_ID_COLUMN), (String)job.get(AU_KEY_COLUMN));
-	if (log.isDebug3()) log.debug3("auId = " + auId);
-	task.setAuId(auId);
-	String auName = getAuName(auId);
-	task.setAuName(auName);
-	Long jobTypeSeq = (Long) job.get(JOB_TYPE_SEQ_COLUMN);
-	if (log.isDebug3()) log.debug3("jobTypeSeq = " + jobTypeSeq);
-	task.setNeedFullReindex(jobMgr.isFullReindexJob(jobTypeSeq));
-	if (log.isDebug3()) log.debug3("task = " + task);
-	tasks.add(task);
-
-	// Count the task.
-	taskCount++;
-      }
-    } catch (DbException dbe) {
-      log.error("jobMgr.getNotStartedReindexingJobs() threw", dbe);
-    } catch (Exception e) {
-      log.error("getAuName() threw", e);
-    }
-
-    // Done if the list is full.
-    if (taskCount == maxReindexingTaskHistory) {
-      return tasks;
-    }
-
     log.debug3("Current finished tasks:");
 
     // Loop through all the finished tasks in the current history in memory.
@@ -1232,6 +1105,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 	task.setAuName(auName);
 	Long jobTypeSeq = (Long) job.get(JOB_TYPE_SEQ_COLUMN);
 	if (log.isDebug3()) log.debug3("jobTypeSeq = " + jobTypeSeq);
+	task.setNewAu(jobMgr.isNewAuJob(jobTypeSeq));
 	task.setNeedFullReindex(jobMgr.isFullReindexJob(jobTypeSeq));
 	task.setStartTime((Long) job.get(START_TIME_COLUMN));
 	task.setEndTime((Long) job.get(END_TIME_COLUMN));
@@ -1268,6 +1142,41 @@ public class MetadataExtractorManager extends BaseLockssManager implements
       }
     } catch (DbException dbe) {
       log.error("jobMgr.getFinishedReindexingJobsBefore() threw", dbe);
+    } catch (Exception e) {
+      log.error("getAuName() threw", e);
+    }
+
+    // Done if the list is full.
+    if (taskCount == maxReindexingTaskHistory) {
+      return tasks;
+    }
+
+    log.debug3("Pending tasks:");
+
+    try {
+      // Loop through all the pending tasks in the job database.
+      for (Map<String, Object> job : jobMgr.getNotStartedReindexingJobs(
+	  maxReindexingTaskHistory - taskCount)) {
+	// Add it to the list.
+	DisplayReindexingTask task = new DisplayReindexingTask();
+	String auId = PluginManager.generateAuId((
+	    String)job.get(PLUGIN_ID_COLUMN), (String)job.get(AU_KEY_COLUMN));
+	if (log.isDebug3()) log.debug3("auId = " + auId);
+	task.setAuId(auId);
+	String auName = getAuName(auId);
+	task.setAuName(auName);
+	Long jobTypeSeq = (Long) job.get(JOB_TYPE_SEQ_COLUMN);
+	if (log.isDebug3()) log.debug3("jobTypeSeq = " + jobTypeSeq);
+	task.setNewAu(jobMgr.isNewAuJob(jobTypeSeq));
+	task.setNeedFullReindex(jobMgr.isFullReindexJob(jobTypeSeq));
+	if (log.isDebug3()) log.debug3("task = " + task);
+	tasks.add(task);
+
+	// Count the task.
+	taskCount++;
+      }
+    } catch (DbException dbe) {
+      log.error("jobMgr.getNotStartedReindexingJobs() threw", dbe);
     } catch (Exception e) {
       log.error("getAuName() threw", e);
     }
@@ -1322,6 +1231,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 	task.setAuName(auName);
 	Long jobTypeSeq = (Long) job.get(JOB_TYPE_SEQ_COLUMN);
 	if (log.isDebug3()) log.debug3("jobTypeSeq = " + jobTypeSeq);
+	task.setNewAu(jobMgr.isNewAuJob(jobTypeSeq));
 	task.setNeedFullReindex(jobMgr.isFullReindexJob(jobTypeSeq));
 	task.setStartTime((Long) job.get(START_TIME_COLUMN));
 	task.setEndTime((Long) job.get(END_TIME_COLUMN));
@@ -1394,11 +1304,15 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 	    log.debug3(DEBUG_HEADER + "priority = " + priority);
 	  auToReindex.priority = priority;
 
-	  auToReindex.isNew = false;
-
 	  Long jobTypeSeq = (Long) job.get(JOB_TYPE_SEQ_COLUMN);
 	  if (log.isDebug3())
 	    log.debug3(DEBUG_HEADER + "jobTypeSeq = " + jobTypeSeq);
+
+	  // The new-AU flag is recorded on the job row itself via the
+	  // JOB_TYPE_PUT_NEW_AU job type — no inference from the priority
+	  // value, which can collide with operator-supplied values in
+	  // indexPriorityAuidMap.
+	  auToReindex.isNew = jobMgr.isNewAuJob(jobTypeSeq);
 
 	  boolean needFullReindex = jobMgr.isFullReindexJob(jobTypeSeq);
 	  if (log.isDebug3())
@@ -1426,6 +1340,14 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    *         database.
    */
   long getArticleCount() {
+    if (getConfigManager().inMigrationMode()) {
+      try {
+        return mdxManagerSql.getArticleCount();
+      } catch (DbException ex) {
+        log.error("getArticleCount", ex);
+        return 0;
+      }
+    }
     return metadataArticleCount;
   }
 
@@ -1435,7 +1357,8 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * @return the number of distinct publishers in the metadata database
    */
   long getPublisherCount() {
-    if (metadataPublisherCount < 0) {
+    if ((getConfigManager().inMigrationMode()) ||
+        metadataPublisherCount < 0) {
       try {
         metadataPublisherCount = mdxManagerSql.getPublisherCount();
       } catch (DbException ex) {
@@ -1451,11 +1374,12 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    * @return the number of distinct providers in the metadata database
    */
   long getProviderCount() {
-    if (metadataProviderCount < 0) {
+    if ((getConfigManager().inMigrationMode()) ||
+        metadataProviderCount < 0) {
       try {
         metadataProviderCount = mdxManagerSql.getProviderCount();
       } catch (DbException ex) {
-	log.error("getProviderCount", ex);
+        log.error("getProviderCount", ex);
       }
     }
     return (metadataProviderCount < 0) ? 0 : metadataProviderCount;
@@ -1475,9 +1399,10 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     return 0;
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   /**
    * Re-calculates the number of AUs pending to be reindexed.
-   * 
+   *
    * @param conn
    *          A Connection with the database connection to be used.
    * @throws DbException
@@ -1519,14 +1444,17 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "now = " + now);
 
     mdxManagerSql.updateAuLastExtractionTime(conn, auMdSeq, now);
+    // TODO(pending_au-removal): remove this line (refresh of pendingAusCount)
+    // with the pending_au table. The surrounding extraction-time update stays.
     pendingAusCount = mdxManagerSql.getEnabledPendingAusCount(conn);
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   /**
    * Adds an AU to the list of AUs to be reindexed.
    * Does incremental reindexing if possible, unless full reindexing
    * is required because the plugin metadata version has changed.
-   * 
+   *
    * @param au
    *          An ArchivalUnit with the AU to be reindexed.
    * @param conn
@@ -1546,10 +1474,11 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 	inBatch, fullReindex);
   }
   
+  // TODO(pending_au-removal): remove with the pending_au table.
   /**
    * Adds an AU to the list of AUs to be reindexed. Optionally causes
    * full reindexing by removing the AU from the database.
-   * 
+   *
    * @param au
    *          An ArchivalUnit with the AU to be reindexed.
    * @param conn
@@ -1562,7 +1491,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    *          performed as part of a batch.
    * @param fullReindex
    *          Causes a full reindex by ignoring the last extraction time and
-   *          removing from the database the metadata of that AU. 
+   *          removing from the database the metadata of that AU.
    * @return <code>true</code> if au was added for reindexing
    */
   boolean enableAndAddAuToReindex(ArchivalUnit au, Connection conn,
@@ -1593,8 +1522,6 @@ public class MetadataExtractorManager extends BaseLockssManager implements
           addToPendingAusIfNotThere(conn, Collections.singleton(au),
               insertPendingAuBatchStatement, inBatch, fullReindex);
         }
-        
-        startReindexing(conn);
 
         MetadataDbManager.commitOrRollback(conn, log);
         return true;
@@ -1605,9 +1532,10 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     }
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   /**
    * Removes an AU with disabled indexing from the table of pending AUs.
-   * 
+   *
    * @param conn
    *          A Connection with the database connection to be used.
    * @param auId
@@ -1644,9 +1572,10 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     return false;
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   /**
    * Disables the indexing of an AU.
-   * 
+   *
    * @param au
    *          An ArchivalUnit with the AU for which indexing is to be disabled.
    * @throws DbException
@@ -1694,10 +1623,11 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     }
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   /**
    * Adds AUs to the table of pending AUs to reindex if they are not there
    * already.
-   * 
+   *
    * @param conn
    *          A Connection with the database connection to be used.
    * @param aus
@@ -1722,10 +1652,11 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     }
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   /**
    * Adds AUs to the table of pending AUs to reindex if they are not there
    * already.
-   * 
+   *
    * @param conn
    *          A Connection with the database connection to be used.
    * @param aus
@@ -1833,6 +1764,50 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     return (au.getTdbAu() != null);
   }
 
+  /**
+   * Provides an indication of whether an AU has article metadata, identified
+   * by auId, without forcing the AU to be instantiated.
+   *
+   * <p>If the AU is already started, the live {@link ArchivalUnit} is used so
+   * the answer matches the running plugin exactly. Otherwise the determination
+   * is made from the plugin's factories and the title database (TDB), mirroring
+   * {@link #hasArticleMetadata(ArchivalUnit)} at the factory level: a plugin
+   * that defines an article iterator factory and, when metadata extraction is
+   * enabled, an article metadata extractor factory has article metadata, as
+   * does an AU backed by a TdbAu. Factory presence is a slightly looser test
+   * than the live check (a factory may yield a null iterator/extractor at
+   * runtime), but a false positive merely schedules a job that finds nothing,
+   * which is the pre-existing behavior.
+   *
+   * @param auId
+   *          A String with the Archival Unit identifier.
+   * @return <code>true</code> if the AU has article metadata,
+   *         <code>false</code> otherwise.
+   */
+  public boolean hasArticleMetadata(String auId) {
+    // Prefer the live AU when it is already started; never instantiate one.
+    ArchivalUnit au = pluginMgr.getAuFromIdIfExists(auId);
+    if (au != null) {
+      return hasArticleMetadata(au);
+    }
+
+    Plugin plugin = pluginMgr.getPluginFromAuId(auId);
+    if (plugin == null || plugin.getArticleIteratorFactory() == null) {
+      return false;
+    }
+
+    // It has article metadata if the plugin defines a metadata extractor.
+    if (useMetadataExtractor && plugin instanceof BasePlugin
+	&& ((BasePlugin) plugin).getArticleMetadataExtractorFactory(
+	    MetadataTarget.OpenURL()) != null) {
+      return true;
+    }
+
+    // Otherwise, it has metadata if it can be created from the TdbAu.
+    return TdbUtil.getTdbAu(auId, plugin) != null;
+  }
+
+  // TODO(pending_au-removal): remove with the pending_au table.
   private void addAuBatchToPendingAus(PreparedStatement
       insertPendingAuBatchStatement) throws SQLException {
     final String DEBUG_HEADER = "addAuBatchToPendingAus(): ";
@@ -1942,8 +1917,6 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 
         deleteAu(conn, au.getAuId());
 
-        // Force reindexing to start next task.
-        startReindexing(conn);
         MetadataDbManager.commitOrRollback(conn, log);
 
         return true;
@@ -2041,15 +2014,34 @@ public class MetadataExtractorManager extends BaseLockssManager implements
   boolean isAuMetadataForObsoletePlugin(ArchivalUnit au) {
     final String DEBUG_HEADER = "isAuMetadataForObsoletePlugin(): ";
 
-    // Get the plugin version of the stored AU metadata. 
+    // Get the plugin version of the stored AU metadata.
     int auVersion = mdxManagerSql.getAuMetadataVersion(au);
     log.debug(DEBUG_HEADER + "auVersion = " + auVersion);
 
-    // Get the current version of the plugin. 
+    // Get the current version of the plugin.
     int pVersion = getPluginMetadataVersionNumber(au.getPlugin());
     log.debug(DEBUG_HEADER + "pVersion = " + pVersion);
 
     return pVersion > auVersion;
+  }
+
+  /**
+   * auId-based no-Connection overload of
+   * {@link #isAuMetadataForObsoletePlugin(ArchivalUnit)}. Opens its own
+   * connection. See the Connection-taking overload for the unstarted-AU
+   * semantics (returns {@code false} if the plugin is not registered).
+   */
+  boolean isAuMetadataForObsoletePlugin(String auId) {
+    Connection conn = null;
+    try {
+      conn = dbManager.getConnection();
+      return isAuMetadataForObsoletePlugin(conn, auId);
+    } catch (DbException dbe) {
+      log.error("isAuMetadataForObsoletePlugin", dbe);
+      return false;
+    } finally {
+      MetadataDbManager.safeRollbackAndClose(conn);
+    }
   }
 
   /**
@@ -2071,12 +2063,45 @@ public class MetadataExtractorManager extends BaseLockssManager implements
       throws DbException {
     final String DEBUG_HEADER = "isAuMetadataForObsoletePlugin(): ";
 
-    // Get the plugin version of the stored AU metadata. 
+    // Get the plugin version of the stored AU metadata.
     int auVersion = mdxManagerSql.getAuMetadataVersion(conn, au);
     log.debug2(DEBUG_HEADER + "auVersion = " + auVersion);
 
-    // Get the current version of the plugin. 
+    // Get the current version of the plugin.
     int pVersion = getPluginMetadataVersionNumber(au.getPlugin());
+    log.debug2(DEBUG_HEADER + "pVersion = " + pVersion);
+
+    return pVersion > auVersion;
+  }
+
+  /**
+   * auId-based overload of {@link #isAuMetadataForObsoletePlugin(Connection,
+   * ArchivalUnit)}. Used by the scan path so unstarted AUs can be evaluated.
+   *
+   * <p>If the plugin for {@code auId} is not currently registered with the
+   * PluginManager (e.g. its JAR hasn't been loaded), this method returns
+   * {@code false} — we can't determine obsolescence without the live plugin,
+   * so we conservatively treat it as "not obsolete." The companion
+   * {@link #isAuCrawledAndNotExtracted(Connection, String)} check still
+   * catches AUs that simply haven't been extracted since their last crawl.
+   */
+  boolean isAuMetadataForObsoletePlugin(Connection conn, String auId)
+      throws DbException {
+    final String DEBUG_HEADER = "isAuMetadataForObsoletePlugin(): ";
+
+    Plugin plugin = pluginMgr.getPluginFromId(
+        PluginManager.pluginIdFromAuId(auId));
+    if (plugin == null) {
+      log.warning(DEBUG_HEADER
+          + "Plugin not registered for auId '" + auId
+          + "'; treating as not-obsolete");
+      return false;
+    }
+
+    int auVersion = mdxManagerSql.getAuMetadataVersion(conn, auId);
+    log.debug2(DEBUG_HEADER + "auVersion = " + auVersion);
+
+    int pVersion = getPluginMetadataVersionNumber(plugin);
     log.debug2(DEBUG_HEADER + "pVersion = " + pVersion);
 
     return pVersion > auVersion;
@@ -2085,7 +2110,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
   /**
    * Provides an indication of whether the metadata of an AU has not been saved
    * in the database after the last successful crawl of the AU.
-   * 
+   *
    * @param conn
    *          A Connection with the database connection to be used.
    * @param au
@@ -2100,11 +2125,35 @@ public class MetadataExtractorManager extends BaseLockssManager implements
       throws DbException {
     final String DEBUG_HEADER = "isAuCrawledAndNotExtracted(): ";
 
-    // Get the time of the last successful crawl of the AU. 
+    // Get the time of the last successful crawl of the AU.
     long lastCrawlTime = AuUtil.getAuState(au).getLastCrawlTime();
     log.debug2(DEBUG_HEADER + "lastCrawlTime = " + lastCrawlTime);
 
     long lastExtractionTime = mdxManagerSql.getAuExtractionTime(conn, au);
+    log.debug2(DEBUG_HEADER + "lastExtractionTime = " + lastExtractionTime);
+
+    return lastCrawlTime > lastExtractionTime;
+  }
+
+  /**
+   * auId-based overload of {@link #isAuCrawledAndNotExtracted(Connection,
+   * ArchivalUnit)}. Used by the scan path so unstarted AUs can be evaluated.
+   * Crawl time comes from the persisted AuStateBean, extraction time from
+   * the metadata DB — neither requires a live AU.
+   *
+   * <p>If the AU was never crawled, {@code lastCrawlTime} is -1 (per
+   * {@link AuStateBean}) and the predicate returns false, so this method
+   * subsumes the legacy {@code AuUtil.hasCrawled} guard.
+   */
+  boolean isAuCrawledAndNotExtracted(Connection conn, String auId)
+      throws DbException {
+    final String DEBUG_HEADER = "isAuCrawledAndNotExtracted(): ";
+
+    AuStateBean ausb = stateManager.getAuStateBean(auId);
+    long lastCrawlTime = (ausb == null) ? -1 : ausb.getLastCrawlTime();
+    log.debug2(DEBUG_HEADER + "lastCrawlTime = " + lastCrawlTime);
+
+    long lastExtractionTime = mdxManagerSql.getAuExtractionTime(conn, auId);
     log.debug2(DEBUG_HEADER + "lastExtractionTime = " + lastExtractionTime);
 
     return lastCrawlTime > lastExtractionTime;
@@ -2119,9 +2168,10 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     return mdManager;
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   /**
    * Provides the prepared statement used to insert pending AUs.
-   * 
+   *
    * @param conn
    *          A Connection with the database connection to be used.
    * @return a PreparedStatement with the prepared statement used to insert
@@ -2132,10 +2182,11 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     return mdxManagerSql.getInsertPendingAuBatchStatement(conn);
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   /**
    * Provides the prepared statement used to insert pending AUs with the
    * highest priority.
-   * 
+   *
    * @param conn
    *          A Connection with the database connection to be used.
    * @return a PreparedStatement with the prepared statement used to insert
@@ -2146,9 +2197,10 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     return mdxManagerSql.getPrioritizedInsertPendingAuBatchStatement(conn);
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   /**
    * Provides the identifiers of pending Archival Units that have been disabled.
-   * 
+   *
    * @return a Collection<String> with the identifiers of disabled pending
    *         Archival Units.
    * @throws DbException
@@ -2167,9 +2219,10 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     }
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   /**
    * Provides the identifiers of pending Archival Units that have been disabled.
-   * 
+   *
    * @param conn
    *          A Connection with the database connection to be used.
    * @return a Collection<String> with the identifiers of disabled pending
@@ -2182,10 +2235,12 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     return mdxManagerSql.findPendingAusWithPriority(conn, MIN_INDEX_PRIORITY);
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table. Failures
+  // are now tracked via JOB_STATUS_FAILED rows in the job table.
   /**
    * Provides the identifiers of pending Archival Units that failed during
    * metadata indexing.
-   * 
+   *
    * @return a Collection<String> with the identifiers of pending Archival Units
    *         with failed metadata indexing processes.
    * @throws DbException
@@ -2204,10 +2259,12 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     }
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table. Failures
+  // are now tracked via JOB_STATUS_FAILED rows in the job table.
   /**
    * Provides the identifiers of pending Archival Units that failed during
    * metadata indexing.
-   * 
+   *
    * @param conn
    *          A Connection with the database connection to be used.
    * @return a Collection<String> with the identifiers of pending Archival Units
@@ -2767,9 +2824,10 @@ public class MetadataExtractorManager extends BaseLockssManager implements
     return auSeq;
   }
 
+  // TODO(pending_au-removal): remove with the pending_au table.
   /**
    * Enables the indexing of an AU.
-   * 
+   *
    * @param au
    *          An ArchivalUnit with the AU for which indexing is to be enabled.
    * @throws DbException
@@ -2816,14 +2874,60 @@ public class MetadataExtractorManager extends BaseLockssManager implements
   }
 
   /**
-   * Provides the indication of whether only on-demand metadata extraction is
-   * enabled.
-   * 
-   * @return a boolean with <code>true</code> if only on-demand metadata
-   *         extraction is enabled, <code>false</code> otherwise.
+   * Clears any retry counter associated with an AU. Called when a job
+   * completes successfully.
    */
-  boolean isOnDemandMetadataExtractionOnly() {
-    return onDemandMetadataExtractionOnly;
+  public void clearRetryCount(String auId) {
+    retryCountByAuId.remove(auId);
+  }
+
+  /**
+   * If retries remain for {@code auId}, increment the in-memory counter and
+   * enqueue a fresh extraction job. Otherwise drop the counter and let the
+   * failure stand.
+   *
+   * @return {@code true} if a retry job was scheduled.
+   */
+  public boolean maybeScheduleRetry(String auId, boolean needFullReindex,
+                                    ReindexingStatus status, Exception exception) {
+    int prior = retryCountByAuId.getOrDefault(auId, 0);
+    if (prior >= maxIndexingRetries) {
+      log.warning("Abandoning metadata extraction for AU '" + auId
+              + "' after " + prior + " retries (status = " + status + ")",
+          exception);
+      retryCountByAuId.remove(auId);
+      return false;
+    }
+    int next = prior + 1;
+    retryCountByAuId.put(auId, next);
+    log.info("Scheduling retry " + next + " of " + maxIndexingRetries
+            + " for AU '" + auId + "' (previous status = " + status + ")",
+        exception);
+    try {
+      jobMgr.scheduleMetadataExtraction(auId, needFullReindex);
+      return true;
+    } catch (Exception e) {
+      log.error("Failed to enqueue retry for AU '" + auId + "'", e);
+      return false;
+    }
+  }
+
+  public long getMetadataExtractionCheckInterval() {
+    return metadataExtractionCheckInterval;
+  }
+
+  /**
+   * Maximum number of retry attempts. Visible for tests.
+   */
+  int getMaxIndexingRetries() {
+    return maxIndexingRetries;
+  }
+
+  /**
+   * Maximum number of FAILED job rows retained per AU.
+   */
+  public int getMaxFailedJobRowsPerAu() {
+    return maxFailedJobRowsPerAu;
   }
 
   /**
@@ -2838,6 +2942,24 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    */
   public ReindexingTask onDemandStartReindexing(String auId,
       boolean needFullReindex) {
+    return onDemandStartReindexing(auId, needFullReindex, false);
+  }
+
+  /**
+   * Starts the indexing of the metadata of an archival unit.
+   *
+   * @param auId
+   *          A String with the identifier of the archival unit.
+   * @param needFullReindex
+   *          A boolean with the indication of whether a full extraction is to
+   *          be performed or not.
+   * @param isNewAu
+   *          A boolean with the indication of whether the AU has not yet been
+   *          indexed and should be tracked as a new-AU run.
+   * @return a ReindexingTask with the metadata indexing task.
+   */
+  public ReindexingTask onDemandStartReindexing(String auId,
+      boolean needFullReindex, boolean isNewAu) {
     final String DEBUG_HEADER = "onDemandStartReindexing(): ";
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "auId = " + auId);
 
@@ -2858,7 +2980,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 	+ "Creating the reindexing task for AU: " + au.getName());
 
     ReindexingTask task = new ReindexingTask(au, getMetadataExtractor(au));
-    task.setNewAu(false);
+    task.setNewAu(isNewAu);
     task.setFullReindex(needFullReindex);
 
     activeReindexingTasks.put(au.getAuId(), task);
@@ -2930,15 +3052,22 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 	  public void lockssRun() {
 	    startWDog(WDOG_PARAM_INDEXER, WDOG_DEFAULT_INDEXER);
 	    task.setWDog(this);
+            task.beginManualRun();
+            try {
+	      task.handleEvent(Schedule.EventType.START);
 
-	    task.handleEvent(Schedule.EventType.START);
+	      while (!task.isFinished()) {
+	        task.step(Integer.MAX_VALUE);
+	      }
 
-	    while (!task.isFinished()) {
-	      task.step(Integer.MAX_VALUE);
-	    }
-
-	    task.handleEvent(Schedule.EventType.FINISH);
-	    stopWDog();
+	      task.handleEvent(Schedule.EventType.FINISH);
+            } catch (Exception e) {
+              task.failManualRun(e);
+              throw e;
+            } finally {
+              task.endManualRun();
+	      stopWDog();
+            }
 	  }
 	};
 
@@ -3009,6 +3138,7 @@ public class MetadataExtractorManager extends BaseLockssManager implements
 
       // Get a connection to the database.
       conn = dbManager.getConnection();
+      mdManager.getMetadataManagerSql().lockMetadataWrite(conn);
 
       // Get the mandatory metadata fields.
       List<String> mandatoryFields = getMandatoryMetadataFields();
@@ -3244,22 +3374,58 @@ public class MetadataExtractorManager extends BaseLockssManager implements
    */
   public void scheduleMetadataExtraction(ArchivalUnit au, String auId)
       throws Exception {
+    if (!hasArticleMetadata(auId)) {
+      log.debug2("Not scheduling metadata extraction for AU '" + auId
+	  + "'; it has no article metadata");
+      return;
+    }
+    boolean fullReindex = (au != null) ? isAuMetadataForObsoletePlugin(au)
+	: isAuMetadataForObsoletePlugin(auId);
+    scheduleMetadataExtraction(auId, fullReindex);
+  }
+
+  /**
+   * Schedules the extraction and storage of all or part of the metadata for
+   * an Archival Unit, identified by auId only. Suitable for the scan path
+   * where the {@link ArchivalUnit} may not be started — full-vs-incremental
+   * is decided from the persisted AU metadata version and the live plugin
+   * version.
+   *
+   * @param auId
+   *          A String with the Archival Unit identifier.
+   * @throws Exception
+   *           if there are problems scheduling the metadata extraction.
+   */
+  public void scheduleMetadataExtraction(String auId) throws Exception {
+    if (!hasArticleMetadata(auId)) {
+      log.debug2("Not scheduling metadata extraction for AU '" + auId
+	  + "'; it has no article metadata");
+      return;
+    }
+    scheduleMetadataExtraction(auId, isAuMetadataForObsoletePlugin(auId));
+  }
+
+  /**
+   * Common path shared by the auId- and au-based overloads. Derives the
+   * insertion priority and the new-AU flag, then hands the job off to
+   * JobManager in a single INSERT — no post-insert UPDATE is performed.
+   */
+  private void scheduleMetadataExtraction(String auId, boolean fullReindex)
+      throws Exception {
     final String DEBUG_HEADER = "scheduleMetadataExtraction(): ";
     if (log.isDebug2()) {
-      log.debug2(DEBUG_HEADER + "au = " + au);
       log.debug2(DEBUG_HEADER + "auId = " + auId);
+      log.debug2(DEBUG_HEADER + "fullReindex = " + fullReindex);
     }
 
     try {
-      boolean fullReindex = true;
-
-      if (au != null) {
-	fullReindex = isAuMetadataForObsoletePlugin(au);
-	if (log.isDebug3()) log.debug3("fullReindex = " + fullReindex);
+      boolean isNewAu = mdxManagerSql.isAuNew(auId);
+      long priority = derivePriorityForAu(auId);
+      if (log.isDebug3()) {
+        log.debug3(DEBUG_HEADER + "isNewAu = " + isNewAu + ", priority = " + priority);
       }
-
       JobAuStatus jobAuStatus =
-	  jobMgr.scheduleMetadataExtraction(auId, fullReindex);
+          jobMgr.scheduleMetadataExtraction(auId, fullReindex, isNewAu, priority);
       log.info("Scheduled metadata extraction job: " + jobAuStatus);
     } catch (Exception e) {
       log.error("Cannot reindex metadata for " + auId, e);

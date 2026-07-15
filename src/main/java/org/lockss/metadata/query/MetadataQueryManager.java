@@ -325,6 +325,7 @@ public class MetadataQueryManager extends BaseLockssManager implements
 
       // Get a connection to the database.
       conn = dbManager.getConnection();
+      mdManager.getMetadataManagerSql().lockMetadataWrite(conn);
 
       // Get the mandatory metadata fields.
       List<String> mandatoryFields = getMandatoryMetadataFields();

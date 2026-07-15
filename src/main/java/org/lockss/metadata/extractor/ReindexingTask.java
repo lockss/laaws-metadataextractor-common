@@ -189,6 +189,21 @@ public class ReindexingTask extends StepTask {
     this.watchDog = watchDog;
   }
 
+  void beginManualRun() {
+    setStarted();
+    setStepping(true);
+  }
+
+  void failManualRun(Exception ex) {
+    e = ex;
+    setFinished();
+  }
+
+  void endManualRun() {
+    updateStats();
+    setStepping(false);
+  }
+
   /**
    * Refreshes the watchdog for another interval.
    */
@@ -771,22 +786,6 @@ public class ReindexingTask extends StepTask {
       if (log.isDebug2())
 	log.debug2(DEBUG_HEADER + "AU '" + auName + "': status = " + status);
 
-      // TK This has no effect as GetAuUrlsClient is no longer used.  Does
-      // it need to be changed to do something else?
-//       if (mdxManager.isOnDemandMetadataExtractionOnly()) {
-// 	// Get any exception thrown while getting the archival unit URLs.
-// 	e = GetAuUrlsClient.getAndDeleteAnyException(auId);
-//         if (log.isDebug3()) log.debug3(DEBUG_HEADER + "e = " + e);
-
-//         // Check whether an exception was thrown.
-//         if (e != null) {
-//           // Yes: If the URLs could not be obtained successfully, the process
-//           // failed. This could be because, for example, the AU was never
-//           // crawled.
-//           status = ReindexingStatus.Failed;
-// 	}
-//       }
-
       if (status == ReindexingStatus.Running) {
         status = ReindexingStatus.Success;
       }
@@ -802,6 +801,10 @@ public class ReindexingTask extends StepTask {
 
             // Get a connection to the database.
             conn = dbManager.getConnection();
+
+            mdxManager.getMetadataManager()
+                .getMetadataManagerSql()
+                .lockMetadataWrite(conn);
 
             if (log.isDebug3())
               log.debug3(DEBUG_HEADER + "needFullReindex = " + needFullReindex);
@@ -842,12 +845,13 @@ public class ReindexingTask extends StepTask {
               .recordMetadataExtraction(conn, creationTime);
             }
 
-            // Remove the AU just re-indexed from the list of AUs pending to be
-            // re-indexed.
+            // TODO(pending_au-removal): remove these two lines (drain the
+            // v1.x-inserted pending_au row + refresh the count) with the
+            // pending_au table. The surrounding success path stays.
             mdxManagerSql.removeFromPendingAus(conn, auId);
             mdxManager.updatePendingAusCount(conn);
 
-            // Complete the database transaction.
+            // Complete the database transaction and release the exclusivity lock
             MetadataDbManager.commitOrRollback(conn, log);
 
             // Update the successful re-indexing count.
@@ -875,17 +879,8 @@ public class ReindexingTask extends StepTask {
             status = ReindexingStatus.Failed;
           } catch (DbException dbe) {
             e = dbe;
-            String message = "Error updating metadata at FINISH for " + status;
-
-            if (mdxManager.isOnDemandMetadataExtractionOnly()) {
-              status = ReindexingStatus.Failed;
-              message = message + " -- NOT rescheduling";
-            } else {
-              status = ReindexingStatus.Rescheduled;
-              message = message + " -- rescheduling";
-            }
-
-            log.warning(message, e);
+            status = ReindexingStatus.Failed;
+            log.warning("Error updating metadata at FINISH for " + status, e);
           } catch (RuntimeException re) {
             e = re;
             log.warning("Error updating metadata at FINISH for " + status
@@ -903,46 +898,7 @@ public class ReindexingTask extends StepTask {
               + "' was unsuccessful: status = " + status);
 
           mdxManager.addToFailedReindexingTasks(ReindexingTask.this);
-
-          if (!mdxManager.isOnDemandMetadataExtractionOnly()) {
-            // Reindexing not successful, so try again later if status indicates
-            // the operation should be rescheduled.
-            try {
-              // Get a connection to the database.
-              conn = dbManager.getConnection();
-
-              mdxManagerSql.removeFromPendingAus(conn, au.getAuId());
-              mdxManager.updatePendingAusCount(conn);
-
-              if (status == ReindexingStatus.Failed) {
-        	if (log.isDebug3()) log.debug3(DEBUG_HEADER
-        	    + "Marking as failed the reindexing task for AU '" + auName
-        	    + "'");
-
-        	// Add the failed AU to the pending list with the right priority
-        	// to avoid processing it again before the underlying problem is
-        	// fixed.
-        	mdxManagerSql.addFailedIndexingAuToPendingAus(conn,
-        	    au.getAuId());
-              } else if (status == ReindexingStatus.Rescheduled) {
-        	if (log.isDebug3()) log.debug3(DEBUG_HEADER
-        	    + "Rescheduling the reindexing task AU '" + auName + "'");
-
-        	// Add the re-schedulable AU to the end of the pending list.
-        	mdxManager.addToPendingAusIfNotThere(conn,
-        	    Collections.singleton(au), needFullReindex);
-              }
-
-              // Complete the database transaction.
-              MetadataDbManager.commitOrRollback(conn, log);
-            } catch (DbException dbe) {
-              log.warning("Error updating pending queue at FINISH for AU '"
-        	  + auName + "', status = " + status, dbe);
-            } finally {
-              MetadataDbManager.safeRollbackAndClose(conn);
-            }
-          }
-
+          // Retry-on-failure is now handled by JobManager.handlePutAuJobFinishEvent.
           break;
         default:
           log.warning("Unexpected status '" + status + "'");
@@ -974,23 +930,6 @@ public class ReindexingTask extends StepTask {
       synchronized (mdxManager.activeReindexingTasks) {
 	mdxManager.activeReindexingTasks.remove(au.getAuId());
 	mdxManager.notifyFinishReindexingAu(au, status, task.getException());
-
-	if (!mdxManager.isOnDemandMetadataExtractionOnly()) {
-	  try {
-            // Get a connection to the database.
-            conn = dbManager.getConnection();
-
-            // Schedule another task if available.
-            mdxManager.startReindexing(conn);
-
-            // Complete the database transaction.
-            MetadataDbManager.commitOrRollback(conn, log);
-          } catch (DbException dbe) {
-            log.error("Cannot restart indexing", dbe);
-          } finally {
-            MetadataDbManager.safeRollbackAndClose(conn);
-          }
-        }
       }
     }
   }

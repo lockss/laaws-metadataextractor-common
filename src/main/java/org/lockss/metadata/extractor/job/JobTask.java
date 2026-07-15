@@ -33,6 +33,7 @@ package org.lockss.metadata.extractor.job;
 
 import static org.lockss.metadata.extractor.job.SqlConstants.*;
 import java.sql.Connection;
+import java.util.concurrent.Semaphore;
 import org.lockss.app.LockssDaemon;
 import org.lockss.db.DbException;
 import org.lockss.metadata.extractor.MetadataExtractorManager;
@@ -47,14 +48,13 @@ import org.lockss.util.Logger;
 public class JobTask implements Runnable {
   private static final Logger log = Logger.getLogger(JobTask.class);
 
-  private long sleepMs = 60000;
   private String baseTaskName;
   private String taskName;
   private Long jobSeq = null;
   private JobDbManager dbManager;
   private MetadataExtractorManager mdxManager;
   private JobManager jobManager;
-  private boolean isJobFinished = false;
+  private final Semaphore jobFinished = new Semaphore(0);
   private StepTask stepTask = null;
 
   /**
@@ -72,7 +72,6 @@ public class JobTask implements Runnable {
     this.dbManager = dbManager;
     this.mdxManager = mdxManager;
     this.jobManager = jobManager;
-    sleepMs = jobManager.getSleepDelaySeconds() * 1000L;
   }
 
   /**
@@ -101,7 +100,7 @@ public class JobTask implements Runnable {
 
     // Infinite loop.
     while (jobSeq == null) {
-      boolean doSleep = true;		// sleep if no job or error
+      long sleepMs = jobManager.getNoJobSleep();
       try {
 	// Claim the next job.
 	jobSeq = jobManager.claimNextJob(taskName);
@@ -111,7 +110,7 @@ public class JobTask implements Runnable {
 	  // Yes: Process it.
 	  taskName = baseTaskName + " - jobSeq=" + jobSeq;
 	  processJob(jobSeq);
-	  doSleep = false;
+	  sleepMs = jobManager.getInterJobSleep();
 	}
       } catch (Exception e) {
 	log.error("Exception caught claiming or processing job: ", e);
@@ -119,10 +118,10 @@ public class JobTask implements Runnable {
 	jobSeq = null;
 	stepTask = null;
 	taskName = baseTaskName;
-	isJobFinished = false;
+	jobFinished.drainPermits();
       }
-      if (doSleep) {
-	sleep(DEBUG_HEADER);
+      if (sleepMs > 0) {
+	sleep(DEBUG_HEADER, sleepMs);
       }
     }
   }
@@ -143,15 +142,15 @@ public class JobTask implements Runnable {
     String jobType = jobManager.getJobType(jobSeq);
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "jobType = " + jobType);
 
-    // Check whether it's a full metadata extraction job.
+    // Full metadata extraction job (existing AU): run as full reindex.
+    // PUT_NEW_AU also runs as a full reindex, but it preserves the new-AU
+    // flag so status/history views can continue to label the run correctly.
     if (JOB_TYPE_PUT_AU.equals(jobType)) {
-      // Yes: Extract the metadata.
-      processPutAuJob(jobSeq, true);
-      // No: Check whether it's an incremental metadata extraction job.
+      processPutAuJob(jobSeq, true, false);
+    } else if (JOB_TYPE_PUT_NEW_AU.equals(jobType)) {
+      processPutAuJob(jobSeq, true, true);
     } else if (JOB_TYPE_PUT_INCREMENTAL_AU.equals(jobType)) {
-      // Yes: Extract the metadata.
-      processPutAuJob(jobSeq, false);
-      // No: Check whether it's a metadata removal job.
+      processPutAuJob(jobSeq, false, false);
     } else if (JOB_TYPE_DELETE_AU.equals(jobType)) {
       // Yes: Remove the metadata.
       processDeleteAuJob(jobSeq);
@@ -182,15 +181,20 @@ public class JobTask implements Runnable {
    * @param needFullReindex
    *          A boolean with the indication of whether a full extraction is to
    *          be performed or not.
+   * @param isNewAu
+   *          A boolean with the indication of whether this job is the initial
+   *          extraction for a never-yet-indexed AU.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
-  private void processPutAuJob(Long jobSeq, boolean needFullReindex)
+  private void processPutAuJob(Long jobSeq, boolean needFullReindex,
+      boolean isNewAu)
       throws DbException {
     final String DEBUG_HEADER = "processPutAuJob() - " + taskName + ": ";
     if (log.isDebug2()) {
       log.debug2(DEBUG_HEADER + "jobSeq = " + jobSeq);
       log.debug2(DEBUG_HEADER + "needFullReindex = " + needFullReindex);
+      log.debug2(DEBUG_HEADER + "isNewAu = " + isNewAu);
     }
 
     Connection conn = null;
@@ -199,7 +203,7 @@ public class JobTask implements Runnable {
       // Get a connection to the database.
       conn = dbManager.getConnection();
 
-      processPutAuJob(conn, jobSeq, needFullReindex);
+      processPutAuJob(conn, jobSeq, needFullReindex, isNewAu);
     } finally {
       JobDbManager.safeRollbackAndClose(conn);
     }
@@ -217,27 +221,42 @@ public class JobTask implements Runnable {
    * @param needFullReindex
    *          A boolean with the indication of whether a full extraction is to
    *          be performed or not.
+   * @param isNewAu
+   *          A boolean with the indication of whether this job is the initial
+   *          extraction for a never-yet-indexed AU.
    * @throws DbException
    *           if any problem occurred accessing the database.
    */
   private void processPutAuJob(Connection conn, Long jobSeq,
-      boolean needFullReindex) throws DbException {
+      boolean needFullReindex, boolean isNewAu) throws DbException {
     final String DEBUG_HEADER = "processPutAuJob() - " + taskName + ": ";
     if (log.isDebug2()) {
       log.debug2(DEBUG_HEADER + "jobSeq = " + jobSeq);
       log.debug2(DEBUG_HEADER + "needFullReindex = " + needFullReindex);
+      log.debug2(DEBUG_HEADER + "isNewAu = " + isNewAu);
     }
 
     String auId = jobManager.getJobAuId(conn, jobSeq);
     if (log.isDebug3()) log.debug3(DEBUG_HEADER + "auId = " + auId);
 
-    // Extract the metadata.
-    stepTask = mdxManager.onDemandStartReindexing(auId, needFullReindex);
-
-    // Wait until the process is done.
-    while (!isJobFinished) {
-      sleep(DEBUG_HEADER);
+    // Eligibility is checked at dequeue (rather than enqueue) so that runtime
+    // changes to the index-priority map or per-AU AuState take effect on
+    // already-queued jobs. See MetadataExtractorManager.isEligibleForReindexing.
+    if (!mdxManager.isEligibleForReindexing(auId)) {
+      log.info("Skipping ineligible AU '" + auId + "' (jobSeq = " + jobSeq + ")");
+      jobManager.markJobAsSkipped(conn, jobSeq,
+	  "Skipped: AU not eligible for reindexing");
+      jobManager.pruneOldestJobsForAuByStatus(conn, auId, JOB_STATUS_SKIPPED,
+	  mdxManager.getMaxFailedJobRowsPerAu());
+      JobDbManager.commitOrRollback(conn, log);
+      return;
     }
+
+    // Extract the metadata.
+    stepTask = mdxManager.onDemandStartReindexing(auId, needFullReindex,
+        isNewAu);
+
+    waitForJobFinish(DEBUG_HEADER);
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
   }
@@ -289,10 +308,7 @@ public class JobTask implements Runnable {
     // Delete the metadata.
     stepTask = mdxManager.startMetadataRemoval(auId);
 
-    // Wait until the process is done.
-    while (!isJobFinished) {
-      sleep(DEBUG_HEADER);
-    }
+    waitForJobFinish(DEBUG_HEADER);
 
     if (log.isDebug2()) log.debug2(DEBUG_HEADER + "Done.");
   }
@@ -364,7 +380,23 @@ public class JobTask implements Runnable {
    * Marks the job of this task as finished.
    */
   void notifyJobFinish() {
-    isJobFinished = true;
+    jobFinished.release();
+  }
+
+  /**
+   * Waits until the current job processing has finished.
+   *
+   * @param id
+   *          A String with the name of the method requesting the wait.
+   */
+  private void waitForJobFinish(String id) {
+    if (log.isDebug3())
+      log.debug3(id + "Waiting for job finish in task '" + taskName + "'");
+
+    jobFinished.acquireUninterruptibly();
+
+    if (log.isDebug3())
+      log.debug3(id + "Job finished in task '" + taskName + "'");
   }
 
   /**
@@ -373,12 +405,12 @@ public class JobTask implements Runnable {
    * @param id
    *          A String with the name of the method requesting the wait.
    */
-  private void sleep(String id) {
+  private void sleep(String id, long ms) {
     if (log.isDebug3())
       log.debug3(id + "Going to sleep task '" + taskName + "'");
 
     try {
-      Thread.sleep(sleepMs);
+      Thread.sleep(ms);
     } catch (InterruptedException ie) {}
 
     if (log.isDebug3())

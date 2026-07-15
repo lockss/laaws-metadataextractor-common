@@ -364,6 +364,101 @@ public class JobDbManagerSql extends DbManagerSql {
   }
 
   /**
+   * Updates the database from version 3 to version 4.
+   *
+   * Adds two new job statuses:
+   * <ul>
+   *   <li>JOB_STATUS_FAILED — failed metadata-extraction jobs, distinct
+   *       from successful (DONE) ones (both used to share JOB_STATUS_DONE).
+   *       Preserved by the dedup loop so they remain a durable failure
+   *       record.</li>
+   *   <li>JOB_STATUS_SKIPPED — dequeue-time eligibility rejections,
+   *       distinct from FAILED. Recorded so the operator can see which AUs
+   *       were filtered out by the index priority map.</li>
+   * </ul>
+   *
+   * @param conn
+   *          A Connection with the database connection to be used.
+   * @throws SQLException
+   *           if any problem occurred updating the database.
+   */
+  void updateDatabaseFrom3To4(Connection conn) throws SQLException {
+    log.debug2("Invoked");
+
+    if (conn == null) {
+      throw new IllegalArgumentException("Null connection");
+    }
+
+    addJobStatus(conn, JOB_STATUS_FAILED);
+    addJobStatus(conn, JOB_STATUS_SKIPPED);
+
+    log.debug2("Done");
+  }
+
+  // SQL statements that drop the legacy UNIQUE index on priority and
+  // replace it with a non-unique index. The UNIQUE constraint was an
+  // artifact carried over from the legacy pending_au model; nothing in the
+  // JobManager code path actually requires uniqueness, and it prevented
+  // multiple rows from sharing a sentinel priority. The job table is
+  // expected to be empty when this migration runs (operator action), so
+  // no data normalization is performed.
+  private static final String[] VERSION_5_INDEX_UPDATE_QUERIES = new String[] {
+    "drop index idx1_" + JOB_TABLE,
+    "create index idx1_" + JOB_TABLE + " on " + JOB_TABLE
+    + "(" + PRIORITY_COLUMN + ")"
+  };
+
+  // MySQL: DROP INDEX must reference the table.
+  private static final String[] VERSION_5_INDEX_UPDATE_MYSQL_QUERIES =
+      new String[] {
+    "drop index idx1_" + JOB_TABLE + " on " + JOB_TABLE,
+    "create index idx1_" + JOB_TABLE + " on " + JOB_TABLE
+    + "(" + PRIORITY_COLUMN + ")"
+  };
+
+  /**
+   * Updates the database from version 4 to version 5.
+   *
+   * <ol>
+   *   <li>Drops the {@code idx1_job} UNIQUE index on {@code priority} and
+   *       recreates it as a non-unique index. The uniqueness was an
+   *       artifact inherited from the legacy {@code pending_au} model.
+   *       Removing it lets the new design carry both a per-tier priority
+   *       and a per-row {@code job_seq} tiebreaker without collisions.</li>
+   *   <li>Adds the {@link SqlConstants#JOB_TYPE_PUT_NEW_AU} row to the
+   *       {@code job_type} table. This type records "AU has no metadata
+   *       yet" on each job at insertion time, replacing the previous
+   *       practice of encoding new-vs-existing in the priority value.</li>
+   * </ol>
+   *
+   * <p>The job table is expected to be empty when this migration runs
+   * (operator action on the one machine that was previously upgraded to
+   * v4), so no row-level data normalization is performed.
+   *
+   * @param conn
+   *          A Connection with the database connection to be used.
+   * @throws SQLException
+   *           if any problem occurred updating the database.
+   */
+  void updateDatabaseFrom4To5(Connection conn) throws SQLException {
+    log.debug2("Invoked");
+
+    if (conn == null) {
+      throw new IllegalArgumentException("Null connection");
+    }
+
+    if (isTypeMysql()) {
+      executeDdlQueries(conn, VERSION_5_INDEX_UPDATE_MYSQL_QUERIES);
+    } else {
+      executeDdlQueries(conn, VERSION_5_INDEX_UPDATE_QUERIES);
+    }
+
+    addJobType(conn, JOB_TYPE_PUT_NEW_AU);
+
+    log.debug2("Done");
+  }
+
+  /**
    * Adds the job queue metadata to the database.
    * 
    * @param conn

@@ -34,8 +34,11 @@ package org.lockss.metadata.extractor;
 import static org.lockss.metadata.MetadataConstants.*;
 import static org.lockss.metadata.extractor.MetadataExtractorManager.*;
 import java.io.UnsupportedEncodingException;
+import java.net.URI;
 import java.nio.charset.Charset;
 import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
 import org.lockss.config.CurrentConfig;
 import org.lockss.util.Logger;
 import org.lockss.util.rest.RestUtil;
@@ -92,9 +95,15 @@ public class DeleteAuItemsClient {
     .encodeToString(credentials.getBytes(Charset.forName("US-ASCII")));
     headers.set("Authorization", authHeaderValue);
 
+    // Build the URI using RestUtil.getRestUri() to properly encode the auId
+    Map<String, String> uriVars = new HashMap<>();
+    uriVars.put("auid", auId);
+
+    URI uri = RestUtil.getRestUri(restServiceLocation + "/aus/{auid}", uriVars, null);
+
     // Make the request to the REST service and get its response.
     ResponseEntity<Integer> response =
-	restTemplate.exchange(restServiceLocation + "/aus/" + auId,
+	restTemplate.exchange(uri,
 	    HttpMethod.DELETE, new HttpEntity<String>(null, headers),
 	    Integer.class);
 

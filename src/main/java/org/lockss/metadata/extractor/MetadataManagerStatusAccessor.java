@@ -429,10 +429,6 @@ public class MetadataManagerStatusAccessor implements StatusAccessor {
   }
 
   
-  List<Map<String,Object>> getRows() {
-    return getTaskRows(mdxMgr.getReindexingTasks());
-  }
-
   /**
    * Get status rows for pending AUs.
    * @param pendingAuIds the pending AU ids.

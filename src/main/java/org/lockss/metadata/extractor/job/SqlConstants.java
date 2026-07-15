@@ -129,6 +129,13 @@ public class SqlConstants {
   public static final String JOB_TYPE_DELETE_AU = "delete_au";
   public static final String JOB_TYPE_PUT_AU = "put_au";
   public static final String JOB_TYPE_PUT_INCREMENTAL_AU = "put_incremental_au";
+  /**
+   * Full metadata extraction for an AU that has no metadata in the database
+   * yet ("new" AU). Treated identically to {@link #JOB_TYPE_PUT_AU} during
+   * processing; recorded separately so the status display can label it as a
+   * new-AU run, and so dedup/claim queries can recognize new-AU rows.
+   */
+  public static final String JOB_TYPE_PUT_NEW_AU = "put_new_au";
 
   /**
    * Statuses of jobs.
@@ -136,7 +143,9 @@ public class SqlConstants {
   public static final String JOB_STATUS_CREATED = "created";
   public static final String JOB_STATUS_DELETED = "deleted";
   public static final String JOB_STATUS_DONE = "done";
+  public static final String JOB_STATUS_FAILED = "failed";
   public static final String JOB_STATUS_RUNNING = "running";
+  public static final String JOB_STATUS_SKIPPED = "skipped";
   public static final String JOB_STATUS_TERMINATED = "terminated";
   public static final String JOB_STATUS_TERMINATING = "terminating";
 }
