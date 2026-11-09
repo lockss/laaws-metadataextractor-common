@@ -35,6 +35,7 @@ import java.io.*;
 import java.lang.management.*;
 import java.sql.*;
 import java.util.*;
+import org.lockss.alert.Alert;
 import org.lockss.app.LockssApp;
 import org.lockss.app.LockssDaemon;
 import org.lockss.config.TdbAu;
@@ -798,6 +799,7 @@ public class ReindexingTask extends StepTask {
 
           try {
             long removedArticleCount = 0L;
+            boolean auPreviouslyIndexed = false;
 
             // Get a connection to the database.
             conn = dbManager.getConnection();
@@ -810,9 +812,14 @@ public class ReindexingTask extends StepTask {
               log.debug3(DEBUG_HEADER + "needFullReindex = " + needFullReindex);
 
             // Check whether the reindexing task is not incremental.
-            if (needFullReindex) { 
-              // Yes: Remove the old Archival Unit metadata before adding the
-              // new metadata.
+            if (needFullReindex) {
+              // Yes: Remember whether the AU was already in the metadata
+              // database, as the job's new-AU indication is only a hint.
+              auPreviouslyIndexed =
+        	  mdxManagerSql.findAuMdByAuId(conn, auId) != null;
+
+              // Remove the old Archival Unit metadata before adding the new
+              // metadata.
               removedArticleCount =
         	  mdxManagerSql.removeAuMetadataItems(conn, auId);
               log.info("Reindexing task for AU '" + auName + "' removed "
@@ -869,6 +876,9 @@ public class ReindexingTask extends StepTask {
               log.info("Reindexing task for AU '" + auName + "' updated "
         	  + updatedArticleCount + " database articles.");
             }
+
+            maybeRaiseArticleCountChangedAlert(auPreviouslyIndexed,
+                removedArticleCount, updatedArticleCount);
 
             break;
           } catch (MetadataIndexingException me) {
@@ -931,6 +941,39 @@ public class ReindexingTask extends StepTask {
 	mdxManager.activeReindexingTasks.remove(au.getAuId());
 	mdxManager.notifyFinishReindexingAu(au, status, task.getException());
       }
+    }
+  }
+
+  /**
+   * Raises an alert if a committed full metadata reindex of an AU that was
+   * already in the metadata database changed the AU's article count. Never
+   * throws, as the metadata has already been committed and a problem raising
+   * the alert must not make the task look like it failed.
+   *
+   * @param auPreviouslyIndexed
+   *          A boolean with the indication of whether the AU was in the
+   *          metadata database before this task.
+   * @param articleCountBefore
+   *          A long with the article count before the full metadata reindex.
+   * @param articleCountAfter
+   *          A long with the article count after the full metadata reindex.
+   */
+  private void maybeRaiseArticleCountChangedAlert(boolean auPreviouslyIndexed,
+      long articleCountBefore, long articleCountAfter) {
+    if (!needFullReindex || !auPreviouslyIndexed
+        || articleCountBefore == articleCountAfter) {
+      return;
+    }
+
+    try {
+      LockssDaemon.getLockssDaemon().getAlertManager().raiseAlert(
+          Alert.auAlert(Alert.ARTICLE_COUNT_CHANGED, au),
+          "Full metadata reindex changed the article count: "
+              + articleCountBefore + " before, " + articleCountAfter
+              + " after.");
+    } catch (RuntimeException re) {
+      log.error("Cannot raise article count changed alert for AU '" + auName
+          + "'", re);
     }
   }
 

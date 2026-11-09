@@ -41,6 +41,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.*;
 import org.junit.Test;
+import org.lockss.alert.Alert;
 import org.lockss.config.*;
 import org.lockss.config.db.ConfigDbManager;
 import org.lockss.daemon.PluginException;
@@ -78,9 +79,14 @@ public class TestMetadataExtractorManager extends LockssTestCase4 {
   private MetadataManager mdManager;
   private JobManager jobManager;
   private JobDbManager jobDbManager;
+  private MockAlertManager alertManager;
 
   /** set of AuIds of AUs reindexed by the MetadataManager */
   Set<String> ausReindexed = new HashSet<String>();
+
+  /** the last reindexing status of each AU reindexed by the MetadataManager */
+  Map<String, ReindexingStatus> lastReindexingStatus =
+      new HashMap<String, ReindexingStatus>();
   
   /** number of articles deleted by the MetadataManager */
   Integer[] articlesDeleted = new Integer[] {0};
@@ -95,7 +101,9 @@ public class TestMetadataExtractorManager extends LockssTestCase4 {
     ConfigurationUtil.addFromArgs(PARAM_INTER_JOB_SLEEP, "1s");
 
     theDaemon = getMockLockssDaemon();
-    theDaemon.getAlertManager();
+    alertManager = new MockAlertManager();
+    theDaemon.setAlertManager(alertManager);
+    alertManager.initService(theDaemon);
     theDaemon.getManagerByType(ConfigDbManager.class).startService();
     configManager = theDaemon.getConfigManager();
     pluginManager = theDaemon.getPluginManager();
@@ -194,6 +202,7 @@ public class TestMetadataExtractorManager extends LockssTestCase4 {
         log.info("Finished reindexing au (" + status + ") " + au);
         if (status != ReindexingStatus.Rescheduled) {
           synchronized (ausReindexed) {
+            lastReindexingStatus.put(au.getAuId(), status);
             ausReindexed.add(au.getAuId());
             ausReindexed.notifyAll();
           }
@@ -289,6 +298,142 @@ public class TestMetadataExtractorManager extends LockssTestCase4 {
     //runRemoveChildMetadataItemTest();
     runTestMandatoryMetadataFields();
     log.debug2("Done");
+  }
+
+  /**
+   * Tests that the ArticleCountChanged alert is raised only by full metadata
+   * reindexes of already indexed AUs whose article count changed.
+   *
+   * @throws Exception if there are problems.
+   */
+  @Test
+  public void testArticleCountChangedAlert() throws Exception {
+    // The first indexing of the AUs done by setUp() must not raise the alert.
+    assertEmpty(articleCountChangedAlerts());
+
+    String auId = sau0.getAuId();
+    int articleCount = countAuMdItems(auId);
+    assertTrue(articleCount > 0);
+
+    // Make the indexed article count one lower than what will be extracted.
+    Connection conn = dbManager.getConnection();
+    try {
+      Long auMdSeq = mdxManagerSql.findAuMdByAuId(conn, auId);
+      assertNotNull(auMdSeq);
+      PreparedStatement stmt = dbManager.prepareStatement(conn,
+	  "select " + MD_ITEM_SEQ_COLUMN + " from " + MD_ITEM_TABLE
+	  + " where " + AU_MD_SEQ_COLUMN + " = ?"
+	  + " and " + PARENT_SEQ_COLUMN + " is not null");
+      stmt.setLong(1, auMdSeq);
+      ResultSet resultSet = dbManager.executeQuery(stmt);
+      assertTrue(resultSet.next());
+      Long mdItemSeq = resultSet.getLong(1);
+      MetadataDbManager.safeCloseResultSet(resultSet);
+      MetadataDbManager.safeCloseStatement(stmt);
+      assertEquals(1,
+	  mdxManagerSql.removeAuChildMetadataItem(conn, auMdSeq, mdItemSeq));
+      MetadataDbManager.commitOrRollback(conn, log);
+    } finally {
+      MetadataDbManager.safeRollbackAndClose(conn);
+    }
+    assertEquals(articleCount - 1, countAuMdItems(auId));
+
+    // A full metadata reindex that changes the article count raises the alert.
+    runFullMetadataReindex(auId);
+    assertEquals(articleCount, countAuMdItems(auId));
+    List<Alert> alerts = articleCountChangedAlerts();
+    assertEquals(1, alerts.size());
+    Alert alert = alerts.get(0);
+    assertEquals(auId, alert.getAttribute(Alert.ATTR_AUID));
+    assertEquals(sau0.getName(), alert.getAttribute(Alert.ATTR_AU_NAME));
+    assertEquals(sau0.getPlugin().getPluginId(),
+	alert.getAttribute(Alert.ATTR_PLUGIN_NAME));
+    assertEquals(Alert.SEVERITY_WARNING,
+	alert.getAttribute(Alert.ATTR_SEVERITY));
+    assertEquals("Full metadata reindex changed the article count: "
+	+ (articleCount - 1) + " before, " + articleCount + " after.",
+	alert.getAttribute(Alert.ATTR_TEXT));
+
+    // A full metadata reindex with an unchanged count does not raise it.
+    runFullMetadataReindex(auId);
+    assertEquals(articleCount, countAuMdItems(auId));
+    assertEquals(1, articleCountChangedAlerts().size());
+
+    // A full metadata reindex job not marked as being for a new AU, of an AU
+    // that is not in the database, is a first indexing and does not raise it.
+    String unindexedAuId = sau1.getAuId();
+    int unindexedAuArticleCount = countAuMdItems(unindexedAuId);
+    assertTrue(unindexedAuArticleCount > 0);
+    conn = dbManager.getConnection();
+    try {
+      assertEquals(1, mdxManagerSql.removeAu(conn, unindexedAuId));
+      MetadataDbManager.commitOrRollback(conn, log);
+      assertNull(mdxManagerSql.findAuMdByAuId(conn, unindexedAuId));
+    } finally {
+      MetadataDbManager.safeRollbackAndClose(conn);
+    }
+    runFullMetadataReindex(unindexedAuId);
+    assertEquals(unindexedAuArticleCount, countAuMdItems(unindexedAuId));
+    assertEquals(1, articleCountChangedAlerts().size());
+  }
+
+  /**
+   * Runs through the job manager a successful full metadata reindex of an AU.
+   *
+   * @param auId A String with the AU identifier.
+   * @throws Exception if there are problems.
+   */
+  private void runFullMetadataReindex(String auId) throws Exception {
+    synchronized (ausReindexed) {
+      ausReindexed.clear();
+      lastReindexingStatus.clear();
+    }
+
+    assertNotNull(jobManager.scheduleMetadataExtraction(auId, true));
+    assertEquals(1, waitForReindexing(1, 60000));
+
+    synchronized (ausReindexed) {
+      assertEquals(ReindexingStatus.Success, lastReindexingStatus.get(auId));
+    }
+  }
+
+  /**
+   * Provides the count of the metadata items of an AU in the database.
+   *
+   * @param auId A String with the AU identifier.
+   * @return an int with the count of metadata items.
+   * @throws Exception if there are problems.
+   */
+  private int countAuMdItems(String auId) throws Exception {
+    Connection conn = dbManager.getConnection();
+    try {
+      Long auMdSeq = mdxManagerSql.findAuMdByAuId(conn, auId);
+      assertNotNull(auMdSeq);
+      PreparedStatement stmt = dbManager.prepareStatement(conn,
+	  "select count(*) from " + MD_ITEM_TABLE
+	  + " where " + AU_MD_SEQ_COLUMN + " = ?");
+      stmt.setLong(1, auMdSeq);
+      ResultSet resultSet = dbManager.executeQuery(stmt);
+      assertTrue(resultSet.next());
+      return resultSet.getInt(1);
+    } finally {
+      MetadataDbManager.safeRollbackAndClose(conn);
+    }
+  }
+
+  /**
+   * Provides the ArticleCountChanged alerts raised so far.
+   *
+   * @return a List<Alert> with the alerts.
+   */
+  private List<Alert> articleCountChangedAlerts() {
+    List<Alert> res = new ArrayList<Alert>();
+    for (Alert alert : alertManager.getAlerts()) {
+      if ("ArticleCountChanged".equals(alert.getName())) {
+	res.add(alert);
+      }
+    }
+    return res;
   }
 
   private void runCreateMetadataTest() throws Exception {
